@@ -72,21 +72,9 @@ Tambien puedes clonar desde VS Code:
 Source Control > Clone Repository > pega la URL > Open
 ```
 
-## 2. Crear el archivo `.env`
+## 2. Crear el archivo `.env` partiendo de `.env.example`
 
-El archivo `.env` guarda tus claves privadas. No se sube a Git.
-
-### macOS
-
-```bash
-cp .env.example .env
-```
-
-### Windows PowerShell
-
-```powershell
-Copy-Item .env.example .env
-```
+El archivo `.env` guarda tus claves privadas. No se sube a Git. Usa el fichero `.env.example`.
 
 ## 3. Instalacion con `uv`
 
@@ -108,8 +96,6 @@ Windows PowerShell:
 pip install uv
 ```
 
-
-
 ### Sincronizar dependencias
 
 En la carpeta del proyecto:
@@ -117,6 +103,7 @@ En la carpeta del proyecto:
 
 ```bash
 uv venv
+source .venv/bin/activate
 uv sync
 ```
 
@@ -125,6 +112,7 @@ En Windows el comando es el mismo:
 
 ```powershell
 uv venv
+.\.venv\Scripts\activate
 uv sync
 ```
 
@@ -134,40 +122,6 @@ Ahora sí, abre `.env` y completa estos valores:
 OPENAI_API_KEY=tu_clave_de_openai
 DEEPGRAM_API_KEY=tu_clave_de_deepgram
 ELEVENLABS_API_KEY=tu_clave_de_elevenlabs
-```
-
-## 4. Instalacion sin `uv`
-
-Usa esta opcion si no puedes instalar `uv`.
-
-### macOS
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install -e .
-```
-
-### Windows PowerShell
-
-```powershell
-py -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-python -m pip install -e .
-```
-
-Si PowerShell bloquea la activacion del entorno virtual, ejecuta:
-
-```powershell
-Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
-```
-
-Despues vuelve a activar:
-
-```powershell
-.\.venv\Scripts\Activate.ps1
 ```
 
 ## 5. Seleccionar el interprete en VS Code
@@ -193,22 +147,6 @@ macOS o Windows:
 
 ```bash
 uv run python src/main.py
-```
-
-### Sin `uv`
-
-macOS:
-
-```bash
-source .venv/bin/activate
-python src/main.py
-```
-
-Windows PowerShell:
-
-```powershell
-.\.venv\Scripts\Activate.ps1
-python src/main.py
 ```
 
 Cuando arranque, abre:
@@ -245,18 +183,4 @@ En la terminal donde esta corriendo:
 
 ```text
 Ctrl + C
-```
-
-Si el puerto queda ocupado, busca el proceso:
-
-macOS:
-
-```bash
-lsof -ti tcp:7860
-```
-
-Windows PowerShell:
-
-```powershell
-netstat -ano | findstr :7860
 ```
