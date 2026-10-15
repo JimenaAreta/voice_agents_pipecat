@@ -1,0 +1,262 @@
+initial_node: initial
+
+global_functions:
+  - name: get_order_time_estimate
+
+nodes:
+  initial:
+    role_message: >-
+      Eres el asistente de voz de El Rincón de Castilla, un restaurante español.
+      Usa las funciones disponibles para avanzar. Habla siempre en español, de
+      forma breve, natural y fácil de pronunciar. No uses markdown, emojis ni
+      formatos especiales. Di los precios en euros con coma decimal, lee los
+      teléfonos dígito a dígito y expresa las horas de reserva de forma natural.
+      Haz una sola pregunta cada vez, no inventes datos y termina siempre con
+      una despedida amable después de confirmar el pedido o la reserva.
+    task_messages:
+      - role: developer
+        content: |-
+          Al conectarte, saluda con una sola frase y pregunta si quiere hacer un pedido o reservar mesa.
+          No llames a herramientas hasta que el cliente responda. Si vuelve desde otro flujo, no repitas el saludo.
+
+          Pedido:
+          - Si solo quiere pedir comida, llama a begin_food_order.
+          - Si da un producto y cantidad, llama a add_menu_item.
+          - Si da varios productos, llama una vez a add_multiple_menu_items.
+          - Si falta cantidad o la petición es ambigua, pide aclaración.
+          - Para finalizar pregunta explícitamente el nombre; nunca lo deduzcas, reutilices ni inventes.
+          - Después pregunta, de una en una, teléfono y modalidad. Si dice "para llevar", trátalo como
+            entrega y pregunta la calle y el número antes de llamar a prepare_checkout.
+
+          Reserva:
+          - Necesitas día, número de personas y hora antes de comprobar disponibilidad.
+          - Si falta el día, pregunta solo el día.
+          - Usa start_table_reservation con todos los datos que ya haya proporcionado.
+
+          Menú disponible:
+          {{ menu_prompt }}
+    pre_actions:
+      - type: function
+        handler: check_restaurant_status
+    functions:
+      - name: begin_food_order
+        transition_only: true
+        description: Empieza un pedido cuando el cliente quiere pedir comida pero aún no ha indicado productos.
+        transition_to: ordering
+      - name: add_menu_item
+        transition_to: ordering
+      - name: add_multiple_menu_items
+        transition_to: ordering
+      - name: remove_menu_item
+        transition_to: ordering
+      - name: prepare_checkout
+        transition_to:
+          field: status
+          cases:
+            listo_para_confirmar: order_confirmation
+          default: ordering
+      - name: start_table_reservation
+        transition_to:
+          field: status
+          cases:
+            falta_dia: reservation_date
+            falta_personas: reservation_party
+            tamaño_no_valido: reservation_party
+            falta_hora: reservation_time
+            hora_no_valida: reservation_time
+            disponible: reservation_details
+            no_disponible: reservation_no_availability
+          default: reservation_date
+
+  ordering:
+    task_messages:
+      - role: developer
+        content: |-
+          Toma el pedido con un estilo telefónico claro.
+
+          Menú:
+          {{ menu_prompt }}
+
+          Añade o elimina productos mediante herramientas y, tras cada cambio, confirma brevemente el resumen.
+          Haz una sola pregunta cada vez. Si falta cantidad, pregúntala. Si pide varios productos, usa una sola
+          llamada a add_multiple_menu_items. Antes de finalizar pregunta explícitamente el nombre y espera
+          su respuesta: nunca lo deduzcas, reutilices ni inventes. Después recoge el teléfono y pregunta si
+          es recogida o entrega, una pregunta cada vez. En esta demo, "para llevar" significa entrega:
+          pregunta siempre la calle y el número. Usa prepare_checkout solo cuando el cliente haya dicho todos
+          esos datos.
+          Si decide reservar mesa, llama a return_to_main_menu.
+    functions:
+      - name: add_menu_item
+      - name: add_multiple_menu_items
+      - name: remove_menu_item
+      - name: prepare_checkout
+        transition_to:
+          field: status
+          cases:
+            listo_para_confirmar: order_confirmation
+          default: ordering
+      - name: return_to_main_menu
+        transition_only: true
+        description: Abandona el pedido y vuelve al menú principal para empezar una reserva.
+        transition_to: initial
+
+  order_confirmation:
+    task_messages:
+      - role: developer
+        content: |-
+          Lee el pedido completo, el nombre, el tipo de pedido, el teléfono y, si corresponde, la dirección.
+          Usa phone_spoken para leer el teléfono. Da el desglose con order_summary y di el total usando
+          exclusivamente total_spoken; no leas total ni total_text en voz alta.
+          Pregunta si todo es correcto. Usa complete_order si confirma o revise_order si quiere cambios.
+    functions:
+      - name: complete_order
+        transition_to: end
+      - name: revise_order
+        transition_only: true
+        description: Vuelve al pedido cuando el cliente quiere modificarlo.
+        transition_to: ordering
+      - name: return_to_main_menu
+        transition_only: true
+        description: Abandona el pedido y vuelve al menú principal para empezar una reserva.
+        transition_to: initial
+
+  reservation_date:
+    task_messages:
+      - role: developer
+        content: >-
+          Pregunta solo el día de la reserva. Cuando lo tengas llama a collect_reservation_date.
+          Si cambia a pedido, llama a return_to_main_menu.
+    functions:
+      - name: collect_reservation_date
+        transition_to:
+          field: status
+          cases:
+            ok: reservation_party
+          default: reservation_date
+      - name: return_to_main_menu
+        transition_only: true
+        description: Abandona la reserva y vuelve al menú principal para hacer un pedido.
+        transition_to: initial
+      - name: cancel_reservation
+        transition_only: true
+        description: Cancela el intento de reserva y termina la conversación.
+        transition_to: end
+
+  reservation_party:
+    task_messages:
+      - role: developer
+        content: >-
+          Pregunta solo para cuántas personas será la reserva. Si también indica una hora, usa
+          start_table_reservation con los datos disponibles; si solo da el número, usa collect_party_size.
+    functions:
+      - name: start_table_reservation
+        transition_to:
+          field: status
+          cases:
+            falta_dia: reservation_date
+            falta_personas: reservation_party
+            tamaño_no_valido: reservation_party
+            falta_hora: reservation_time
+            hora_no_valida: reservation_time
+            disponible: reservation_details
+            no_disponible: reservation_no_availability
+          default: reservation_party
+      - name: collect_party_size
+        transition_to:
+          field: status
+          cases:
+            ok: reservation_time
+            falta_dia: reservation_date
+          default: reservation_party
+      - name: return_to_main_menu
+        transition_only: true
+        description: Abandona la reserva y vuelve al menú principal para hacer un pedido.
+        transition_to: initial
+      - name: cancel_reservation
+        transition_only: true
+        description: Cancela el intento de reserva y termina la conversación.
+        transition_to: end
+
+  reservation_time:
+    task_messages:
+      - role: developer
+        content: >-
+          Pregunta solo la hora. Se aceptan las seis, siete y ocho de la tarde y las nueve y diez de la noche.
+          Cuando la tengas llama a check_reservation_availability.
+    functions:
+      - name: check_reservation_availability
+        transition_to:
+          field: status
+          cases:
+            falta_dia: reservation_date
+            falta_personas: reservation_party
+            hora_no_valida: reservation_time
+            disponible: reservation_details
+            no_disponible: reservation_no_availability
+          default: reservation_time
+      - name: return_to_main_menu
+        transition_only: true
+        description: Abandona la reserva y vuelve al menú principal para hacer un pedido.
+        transition_to: initial
+      - name: cancel_reservation
+        transition_only: true
+        description: Cancela el intento de reserva y termina la conversación.
+        transition_to: end
+
+  reservation_no_availability:
+    task_messages:
+      - role: developer
+        content: >-
+          Disculpa al cliente y ofrece estas horas: {{ alternative_times_spoken }}.
+          Pregunta cuál prefiere. Si acepta una, llama a check_reservation_availability.
+    functions:
+      - name: check_reservation_availability
+        transition_to:
+          field: status
+          cases:
+            disponible: reservation_details
+            no_disponible: reservation_no_availability
+            hora_no_valida: reservation_time
+          default: reservation_time
+      - name: return_to_main_menu
+        transition_only: true
+        description: Abandona la reserva y vuelve al menú principal para hacer un pedido.
+        transition_to: initial
+      - name: cancel_reservation
+        transition_only: true
+        description: Cancela el intento de reserva y termina la conversación.
+        transition_to: end
+
+  reservation_details:
+    task_messages:
+      - role: developer
+        content: >-
+          La hora está disponible. Pide primero el nombre y después el teléfono, una pregunta cada vez.
+          Cuando tengas ambos llama a confirm_reservation. No inventes datos.
+    functions:
+      - name: confirm_reservation
+        transition_to:
+          field: status
+          cases:
+            reserva_confirmada: end
+            falta_dia: reservation_date
+            falta_personas: reservation_party
+            falta_hora: reservation_time
+          default: reservation_details
+      - name: return_to_main_menu
+        transition_only: true
+        description: Abandona la reserva y vuelve al menú principal para hacer un pedido.
+        transition_to: initial
+      - name: cancel_reservation
+        transition_only: true
+        description: Cancela el intento de reserva y termina la conversación.
+        transition_to: end
+
+  end:
+    task_messages:
+      - role: developer
+        content: >-
+          Da las gracias. Resume brevemente el pedido o la reserva del resultado anterior.
+          Usa los campos terminados en _spoken al hablar. Despídete claramente de El Rincón de Castilla.
+    post_actions:
+      - type: end_conversation

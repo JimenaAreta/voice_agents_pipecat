@@ -1,12 +1,13 @@
 """Bot de voz de El Rincón de Castilla con pedido de comida y reserva de mesa.
 
-Este archivo contiene solo el ensamblaje del pipeline de Pipecat. La lógica de
-negocio está separada en módulos:
+Este archivo contiene solo el ensamblaje de la aplicación. El resto está
+separado por responsabilidad:
 
+- `restaurant.yaml`: nodos, prompts y transiciones del flujo.
 - `ordering.py`: pedido de comida.
-- `reservations.py`: reserva de mesa inspirada en `restaurant_reservation.py`.
+- `reservations.py`: reserva de mesa.
 - `services.py`: OpenAI, Deepgram y ElevenLabs.
-- `flow_nodes.py`: nodo inicial que enruta entre pedido y reserva.
+- `pipeline.py`: procesamiento de voz y turnos.
 
 Ejecuta con:
     uv run python src/main.py
@@ -16,28 +17,21 @@ Después abre:
 """
 
 import aiohttp
-import os
 from dotenv import load_dotenv
 from loguru import logger
-from pipecat.audio.vad.silero import SileroVADAnalyzer
-from pipecat.audio.vad.vad_analyzer import VADParams
-from pipecat.pipeline.pipeline import Pipeline
-from pipecat.pipeline.runner import PipelineRunner
-from pipecat.pipeline.task import PipelineParams, PipelineTask
-from pipecat.processors.aggregators.llm_context import LLMContext
-from pipecat.processors.aggregators.llm_response_universal import (
-    LLMContextAggregatorPair,
-    LLMUserAggregatorParams,
-)
+from pipecat.pipeline.runner import WorkerRunner
+from pipecat.pipeline.worker import PipelineParams, PipelineWorker
 from pipecat.runner.types import RunnerArguments
 from pipecat.runner.utils import create_transport
 from pipecat.transports.base_transport import BaseTransport, TransportParams
 from pipecat.transports.daily.transport import DailyParams
 from pipecat.transports.websocket.fastapi import FastAPIWebsocketParams
-from pipecat_flows import FlowManager
+from pipecat.flows import FlowManager
 
-from flows.flow_nodes import create_initial_node
-from flows.ordering import get_order_time_estimate
+from config import VoiceSettings, validate_required_api_keys
+from flows.restaurant_flow import load_restaurant_flow
+from pipeline import create_voice_pipeline
+from services.menu import format_menu_for_prompt
 from services.services import create_deepgram_stt, create_elevenlabs_tts, create_openai_llm
 
 load_dotenv(override=True)
@@ -54,85 +48,71 @@ transport_params = {
 }
 
 
-def create_vad_analyzer() -> SileroVADAnalyzer:
-    """Crea Silero VAD con parámetros ajustables para cerrar turnos de voz."""
-    return SileroVADAnalyzer(
-        params=VADParams(
-            confidence=float(os.getenv("VAD_CONFIDENCE", "0.7")),
-            start_secs=float(os.getenv("VAD_START_SECS", "0.2")),
-            stop_secs=float(os.getenv("VAD_STOP_SECS", "0.35")),
-            min_volume=float(os.getenv("VAD_MIN_VOLUME", "0.6")),
-        )
-    )
-
-
 async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> None:
-    """Construye y ejecuta el pipeline de Pipecat."""
+    """Prepara los servicios, el flujo conversacional y ejecuta el bot."""
+    validate_required_api_keys()
+    voice_settings = VoiceSettings.from_env()
     stt = create_deepgram_stt()
     llm = create_openai_llm()
 
     # ElevenLabs HTTP necesita una sesión aiohttp compartida. La cerramos cuando
     # el cliente se desconecta para no dejar recursos abiertos.
     aiohttp_session = aiohttp.ClientSession()
-    tts = create_elevenlabs_tts(aiohttp_session)
 
     # El agregador de contexto mantiene el historial de conversación. Silero VAD
     # ayuda a Pipecat a decidir cuándo el usuario ha terminado de hablar antes
     # de enviar el texto al LLM.
-    context = LLMContext()
-    context_aggregator = LLMContextAggregatorPair(
-        context,
-        user_params=LLMUserAggregatorParams(
-            audio_idle_timeout=float(os.getenv("USER_AUDIO_IDLE_TIMEOUT", "0.7")),
-            user_turn_stop_timeout=float(os.getenv("USER_TURN_STOP_TIMEOUT", "1.2")),
-            vad_analyzer=create_vad_analyzer(),
-            filter_incomplete_user_turns=False,
-        ),
-    )
+    try:
+        tts = create_elevenlabs_tts(aiohttp_session)
+        voice_pipeline = create_voice_pipeline(
+            transport=transport,
+            stt=stt,
+            llm=llm,
+            tts=tts,
+            settings=voice_settings,
+        )
+        restaurant_flow = load_restaurant_flow()
 
-    # El audio y el texto avanzan por el pipeline de izquierda a derecha:
-    # micrófono -> STT -> contexto del usuario -> LLM -> TTS -> altavoz
-    # -> contexto del asistente.
-    pipeline = Pipeline(
-        [
-            transport.input(),
-            stt,
-            context_aggregator.user(),
-            llm,
-            tts,
-            transport.output(),
-            context_aggregator.assistant(),
-        ]
-    )
+        worker = PipelineWorker(
+            voice_pipeline.pipeline,
+            params=PipelineParams(
+                enable_metrics=True,
+                enable_usage_metrics=True,
+                report_only_initial_ttfb=False,
+            ),
+            idle_timeout_secs=runner_args.pipeline_idle_timeout_secs,
+        )
 
-    task = PipelineTask(
-        pipeline,
-        params=PipelineParams(enable_metrics=True, enable_usage_metrics=True),
-        idle_timeout_secs=runner_args.pipeline_idle_timeout_secs,
-    )
+        flow_manager = FlowManager(
+            worker=worker,
+            llm=llm,
+            context_aggregator=voice_pipeline.context_aggregator,
+            transport=transport,
+            global_functions=restaurant_flow.global_functions,
+        )
 
-    flow_manager = FlowManager(
-        task=task,
-        llm=llm,
-        context_aggregator=context_aggregator,
-        transport=transport,
-        # Función disponible en cualquier nodo del flujo de pedido.
-        global_functions=[get_order_time_estimate],
-    )
+        runner = WorkerRunner(handle_sigint=runner_args.handle_sigint)
 
-    @transport.event_handler("on_client_connected")
-    async def on_client_connected(transport, client) -> None:
-        logger.info("Cliente conectado")
-        await flow_manager.initialize(create_initial_node())
+        @transport.event_handler("on_client_connected")
+        async def on_client_connected(transport, client) -> None:
+            logger.info("Cliente conectado; inicializando flujo")
+            # Cada conexión representa un cliente nuevo. Así ningún nombre,
+            # teléfono o pedido de una conversación anterior puede heredarse.
+            flow_manager.state.clear()
+            flow_manager.state["menu_prompt"] = format_menu_for_prompt()
+            flow_manager.state["alternative_times_spoken"] = ""
+            await flow_manager.initialize(restaurant_flow.initial_node)
 
-    @transport.event_handler("on_client_disconnected")
-    async def on_client_disconnected(transport, client) -> None:
-        logger.info("Cliente desconectado")
-        await aiohttp_session.close()
-        await task.cancel()
+        @transport.event_handler("on_client_disconnected")
+        async def on_client_disconnected(transport, client) -> None:
+            logger.info("Cliente desconectado; cancelando sesión")
+            await runner.cancel()
 
-    runner = PipelineRunner(handle_sigint=runner_args.handle_sigint)
-    await runner.run(task)
+        await runner.add_workers(worker)
+        await runner.run()
+    finally:
+        if not aiohttp_session.closed:
+            await aiohttp_session.close()
 
 
 async def bot(runner_args: RunnerArguments) -> None:

@@ -1,13 +1,15 @@
 """Flujo de pedido de comida con funciones directas de Pipecat Flows."""
 
 from datetime import datetime, timedelta
+from decimal import Decimal
 from typing import NotRequired, TypedDict
 
-from pipecat_flows import FlowManager, NodeConfig
+from pipecat.flows import FlowManager
+from pipecat.flows.types import TRANSITION_IN_YAML
 
-from services.common_nodes import create_end_node, return_to_main_menu
-from services.menu import MENU, format_euros, format_menu_for_prompt
-from services.speech_format import format_phone_for_speech
+from services.menu import MENU, format_euros
+from services.speech_format import format_euros_for_speech, format_phone_for_speech
+from services.validation import normalize_address, normalize_name, normalize_phone
 
 
 class OrderItem(TypedDict):
@@ -16,8 +18,8 @@ class OrderItem(TypedDict):
     item_key: str
     name: str
     quantity: int
-    unit_price: float
-    line_total: float
+    unit_price: Decimal
+    line_total: Decimal
     notes: str
 
 
@@ -36,6 +38,7 @@ class OrderResult(TypedDict):
     order_summary: str
     total: float
     total_text: str
+    total_spoken: str
     customer_name: NotRequired[str]
     phone_number: NotRequired[str]
     phone_spoken: NotRequired[str]
@@ -58,9 +61,16 @@ def ensure_order_state(flow_manager: FlowManager) -> None:
     flow_manager.state.setdefault("delivery_address", None)
 
 
-def order_total(items: list[OrderItem]) -> float:
+def order_total(items: list[OrderItem]) -> Decimal:
     """Calcula el total actual del pedido."""
-    return round(sum(item["line_total"] for item in items), 2)
+    return sum((item["line_total"] for item in items), start=Decimal("0.00")).quantize(
+        Decimal("0.01")
+    )
+
+
+def public_total(items: list[OrderItem]) -> float:
+    """Convierte el total exacto a un valor serializable para la herramienta."""
+    return float(order_total(items))
 
 
 def summarize_order(items: list[OrderItem]) -> str:
@@ -80,7 +90,7 @@ def summarize_order(items: list[OrderItem]) -> str:
 def build_order_item(item_key: str, quantity: int, notes: str = "") -> OrderItem:
     """Construye una línea de pedido ya validada."""
     menu_item = MENU[item_key]
-    line_total = round(menu_item["price"] * quantity, 2)
+    line_total = (menu_item["price"] * quantity).quantize(Decimal("0.01"))
     return {
         "item_key": item_key,
         "name": menu_item["name"],
@@ -89,6 +99,18 @@ def build_order_item(item_key: str, quantity: int, notes: str = "") -> OrderItem
         "line_total": line_total,
         "notes": notes.strip(),
     }
+
+
+def merge_order_item(items: list[OrderItem], new_item: OrderItem) -> None:
+    """Acumula líneas equivalentes para evitar duplicados ambiguos."""
+    for item in items:
+        if item["item_key"] == new_item["item_key"] and item["notes"] == new_item["notes"]:
+            item["quantity"] += new_item["quantity"]
+            item["line_total"] = (item["unit_price"] * item["quantity"]).quantize(
+                Decimal("0.01")
+            )
+            return
+    items.append(new_item)
 
 
 def validate_menu_request(item_key: str, quantity: int) -> str | None:
@@ -100,9 +122,28 @@ def validate_menu_request(item_key: str, quantity: int) -> str | None:
     return None
 
 
+def build_order_result(
+    status: str,
+    items: list[OrderItem],
+    *,
+    summary: str | None = None,
+    **details: str,
+) -> OrderResult:
+    """Crea la fotografía del pedido que recibe el asistente tras cada acción."""
+    result: OrderResult = {
+        "status": status,
+        "order_summary": summary if summary is not None else summarize_order(items),
+        "total": public_total(items),
+        "total_text": format_euros(order_total(items)),
+        "total_spoken": format_euros_for_speech(order_total(items)),
+    }
+    result.update(details)
+    return result
+
+
 async def add_menu_item(
     flow_manager: FlowManager, item_key: str, quantity: int, notes: str = ""
-) -> tuple[OrderResult, NodeConfig]:
+) -> tuple[OrderResult, object]:
     """
     Añade un producto del menú al pedido actual.
 
@@ -117,26 +158,24 @@ async def add_menu_item(
     # más robusta y permite explicar por qué nunca confiamos ciegamente en tools.
     validation_error = validate_menu_request(item_key, quantity)
     if validation_error:
-        return {
-            "status": "error",
-            "order_summary": f"{validation_error} Pide al cliente que lo repita.",
-            "total": order_total(flow_manager.state["order_items"]),
-            "total_text": format_euros(order_total(flow_manager.state["order_items"])),
-        }, create_ordering_node()
+        return build_order_result(
+            "error",
+            flow_manager.state["order_items"],
+            summary=f"{validation_error} Pide al cliente que lo repita.",
+        ), TRANSITION_IN_YAML
 
-    flow_manager.state["order_items"].append(build_order_item(item_key, quantity, notes))
+    merge_order_item(
+        flow_manager.state["order_items"], build_order_item(item_key, quantity, notes)
+    )
 
-    return {
-        "status": "añadido",
-        "order_summary": summarize_order(flow_manager.state["order_items"]),
-        "total": order_total(flow_manager.state["order_items"]),
-        "total_text": format_euros(order_total(flow_manager.state["order_items"])),
-    }, create_ordering_node()
+    return build_order_result(
+        "añadido", flow_manager.state["order_items"]
+    ), TRANSITION_IN_YAML
 
 
 async def add_multiple_menu_items(
     flow_manager: FlowManager, items: list[MenuItemRequest]
-) -> tuple[OrderResult, NodeConfig]:
+) -> tuple[OrderResult, object]:
     """
     Añade varios productos al pedido actual con una sola llamada de herramienta.
 
@@ -147,12 +186,11 @@ async def add_multiple_menu_items(
     ensure_order_state(flow_manager)
 
     if not items:
-        return {
-            "status": "error",
-            "order_summary": "No se ha recibido ningún producto para añadir.",
-            "total": order_total(flow_manager.state["order_items"]),
-            "total_text": format_euros(order_total(flow_manager.state["order_items"])),
-        }, create_ordering_node()
+        return build_order_result(
+            "error",
+            flow_manager.state["order_items"],
+            summary="No se ha recibido ningún producto para añadir.",
+        ), TRANSITION_IN_YAML
 
     new_items: list[OrderItem] = []
     for request in items:
@@ -160,39 +198,28 @@ async def add_multiple_menu_items(
         quantity = request["quantity"]
         validation_error = validate_menu_request(item_key, quantity)
         if validation_error:
-            return {
-                "status": "error",
-                "order_summary": (
+            return build_order_result(
+                "error",
+                flow_manager.state["order_items"],
+                summary=(
                     f"{validation_error} No he añadido ningún producto del lote. "
                     "Pide al cliente que confirme de nuevo el pedido."
                 ),
-                "total": order_total(flow_manager.state["order_items"]),
-                "total_text": format_euros(order_total(flow_manager.state["order_items"])),
-            }, create_ordering_node()
+            ), TRANSITION_IN_YAML
 
         new_items.append(build_order_item(item_key, quantity, request.get("notes", "")))
 
-    flow_manager.state["order_items"].extend(new_items)
+    for new_item in new_items:
+        merge_order_item(flow_manager.state["order_items"], new_item)
 
-    return {
-        "status": "añadidos",
-        "order_summary": summarize_order(flow_manager.state["order_items"]),
-        "total": order_total(flow_manager.state["order_items"]),
-        "total_text": format_euros(order_total(flow_manager.state["order_items"])),
-    }, create_ordering_node()
-
-
-async def begin_food_order(flow_manager: FlowManager) -> tuple[None, NodeConfig]:
-    """
-    El cliente quiere hacer un pedido de comida, pero todavía no ha indicado productos.
-    """
-    ensure_order_state(flow_manager)
-    return None, create_ordering_node()
+    return build_order_result(
+        "añadidos", flow_manager.state["order_items"]
+    ), TRANSITION_IN_YAML
 
 
 async def remove_menu_item(
     flow_manager: FlowManager, item_key: str
-) -> tuple[OrderResult, NodeConfig]:
+) -> tuple[OrderResult, object]:
     """
     Elimina un producto del menú del pedido actual.
 
@@ -201,18 +228,19 @@ async def remove_menu_item(
     """
     ensure_order_state(flow_manager)
 
-    before = len(flow_manager.state["order_items"])
-    flow_manager.state["order_items"] = [
-        item for item in flow_manager.state["order_items"] if item["item_key"] != item_key
-    ]
+    removed = False
+    remaining_items: list[OrderItem] = []
+    for item in flow_manager.state["order_items"]:
+        if not removed and item["item_key"] == item_key:
+            removed = True
+            continue
+        remaining_items.append(item)
+    flow_manager.state["order_items"] = remaining_items
 
-    status = "eliminado" if len(flow_manager.state["order_items"]) < before else "no_encontrado"
-    return {
-        "status": status,
-        "order_summary": summarize_order(flow_manager.state["order_items"]),
-        "total": order_total(flow_manager.state["order_items"]),
-        "total_text": format_euros(order_total(flow_manager.state["order_items"])),
-    }, create_ordering_node()
+    status = "eliminado" if removed else "no_encontrado"
+    return build_order_result(
+        status, flow_manager.state["order_items"]
+    ), TRANSITION_IN_YAML
 
 
 async def prepare_checkout(
@@ -221,7 +249,7 @@ async def prepare_checkout(
     phone_number: str,
     order_type: str,
     delivery_address: str = "",
-) -> tuple[OrderResult, NodeConfig]:
+) -> tuple[OrderResult, object]:
     """
     Pasa a la confirmación cuando el cliente está listo para terminar.
 
@@ -232,158 +260,83 @@ async def prepare_checkout(
         delivery_address: Dirección de entrega. Obligatoria si order_type es entrega.
     """
     ensure_order_state(flow_manager)
-    flow_manager.state["customer_name"] = customer_name.strip()
-    flow_manager.state["order_phone"] = phone_number.strip()
+    normalized_name = normalize_name(customer_name)
+    normalized_phone = normalize_phone(phone_number)
+    flow_manager.state["customer_name"] = normalized_name
+    flow_manager.state["order_phone"] = normalized_phone
     requested_order_type = order_type.strip().lower()
-    if requested_order_type in {"entrega", "domicilio", "a domicilio"}:
+    if requested_order_type in {
+        "entrega", "domicilio", "a domicilio", "para llevar", "llevar",
+    }:
         flow_manager.state["order_type"] = "entrega"
-        flow_manager.state["delivery_address"] = delivery_address.strip()
+        flow_manager.state["delivery_address"] = normalize_address(delivery_address)
     else:
         flow_manager.state["order_type"] = "recogida"
         flow_manager.state["delivery_address"] = None
 
     if not flow_manager.state["order_items"]:
-        return {
-            "status": "pedido_vacio",
-            "order_summary": "El cliente todavía no ha pedido ningún producto.",
-            "total": 0.0,
-            "total_text": format_euros(0.0),
-        }, create_ordering_node()
+        return build_order_result(
+            "pedido_vacio",
+            flow_manager.state["order_items"],
+            summary="El cliente todavía no ha pedido ningún producto.",
+        ), TRANSITION_IN_YAML
+
+    if not flow_manager.state["customer_name"]:
+        return build_order_result(
+            "nombre_no_valido",
+            flow_manager.state["order_items"],
+            summary="Falta un nombre válido para el pedido.",
+        ), TRANSITION_IN_YAML
 
     if not flow_manager.state["order_phone"]:
-        return {
-            "status": "falta_telefono",
-            "order_summary": "Falta el teléfono de contacto del cliente.",
-            "total": order_total(flow_manager.state["order_items"]),
-            "total_text": format_euros(order_total(flow_manager.state["order_items"])),
-        }, create_ordering_node()
+        return build_order_result(
+            "falta_telefono",
+            flow_manager.state["order_items"],
+            summary="Falta el teléfono de contacto del cliente.",
+        ), TRANSITION_IN_YAML
 
     if flow_manager.state["order_type"] == "entrega" and not flow_manager.state["delivery_address"]:
-        return {
-            "status": "falta_direccion",
-            "order_summary": "Falta la dirección de entrega del cliente.",
-            "total": order_total(flow_manager.state["order_items"]),
-            "total_text": format_euros(order_total(flow_manager.state["order_items"])),
-        }, create_ordering_node()
+        return build_order_result(
+            "falta_direccion",
+            flow_manager.state["order_items"],
+            summary="Falta la dirección de entrega del cliente.",
+        ), TRANSITION_IN_YAML
 
-    return {
-        "status": "listo_para_confirmar",
-        "order_summary": summarize_order(flow_manager.state["order_items"]),
-        "total": order_total(flow_manager.state["order_items"]),
-        "total_text": format_euros(order_total(flow_manager.state["order_items"])),
-        "customer_name": flow_manager.state["customer_name"],
-        "phone_number": flow_manager.state["order_phone"],
-        "phone_spoken": format_phone_for_speech(flow_manager.state["order_phone"]),
-        "order_type": flow_manager.state["order_type"],
-        "delivery_address": flow_manager.state["delivery_address"] or "",
-    }, create_order_confirmation_node()
+    return build_order_result(
+        "listo_para_confirmar",
+        flow_manager.state["order_items"],
+        customer_name=flow_manager.state["customer_name"],
+        phone_number=flow_manager.state["order_phone"],
+        phone_spoken=format_phone_for_speech(flow_manager.state["order_phone"]),
+        order_type=flow_manager.state["order_type"],
+        delivery_address=flow_manager.state["delivery_address"] or "",
+    ), TRANSITION_IN_YAML
 
 
-async def revise_order(flow_manager: FlowManager) -> tuple[None, NodeConfig]:
-    """
-    Vuelve al paso de pedido porque el cliente quiere cambiar algo.
-    """
-    return None, create_ordering_node()
-
-
-async def complete_order(flow_manager: FlowManager) -> tuple[OrderResult, NodeConfig]:
+async def complete_order(flow_manager: FlowManager) -> tuple[OrderResult, object]:
     """
     Completa el pedido cuando el cliente confirma que todos los datos son correctos.
     """
     ensure_order_state(flow_manager)
 
-    return {
-        "status": "completado",
-        "order_summary": summarize_order(flow_manager.state["order_items"]),
-        "total": order_total(flow_manager.state["order_items"]),
-        "total_text": format_euros(order_total(flow_manager.state["order_items"])),
-        "customer_name": flow_manager.state["customer_name"] or "",
-        "phone_number": flow_manager.state["order_phone"] or "",
-        "phone_spoken": format_phone_for_speech(flow_manager.state["order_phone"] or ""),
-        "order_type": flow_manager.state["order_type"],
-        "delivery_address": flow_manager.state["delivery_address"] or "",
-    }, create_end_node()
+    return build_order_result(
+        "completado",
+        flow_manager.state["order_items"],
+        customer_name=flow_manager.state["customer_name"] or "",
+        phone_number=flow_manager.state["order_phone"] or "",
+        phone_spoken=format_phone_for_speech(flow_manager.state["order_phone"] or ""),
+        order_type=flow_manager.state["order_type"],
+        delivery_address=flow_manager.state["delivery_address"] or "",
+    ), TRANSITION_IN_YAML
 
 
 async def get_order_time_estimate(
     flow_manager: FlowManager,
-) -> tuple[DeliveryEstimateResult, None]:
+) -> tuple[DeliveryEstimateResult, object]:
     """Proporciona la estimación actual de recogida o entrega."""
     ensure_order_state(flow_manager)
     minutes = 45 if flow_manager.state["order_type"] == "entrega" else 20
     estimated_time = datetime.now() + timedelta(minutes=minutes)
     return {
         "estimated_time": estimated_time.strftime("%H:%M"),
-    }, None
-
-
-def create_ordering_node() -> NodeConfig:
-    """Crea el nodo donde el asistente añade, elimina y actualiza productos."""
-    return NodeConfig(
-        name="ordering",
-        task_messages=[
-            {
-                "role": "developer",
-                "content": f"""Toma el pedido del cliente para el restaurante con un estilo telefónico claro.
-
-Menú:
-{format_menu_for_prompt()}
-
-Objetivo:
-1. Ayudar al cliente a elegir productos.
-2. Añadir o quitar productos con herramientas.
-3. Preguntar si quiere algo más después de cada cambio.
-4. Antes de finalizar, recoger nombre, teléfono y si es recogida o entrega.
-5. Si es entrega, recoger también dirección completa.
-6. Pasar a confirmación con prepare_checkout.
-
-Reglas:
-- Haz una sola pregunta cada vez.
-- Si el cliente dice "un poco de todo", "de todo un poco" o algo parecido,
-  no llames a herramientas todavía. Pregunta si quiere una unidad de cada plato
-  del menú o si prefiere que le prepares una selección.
-- Si el cliente pide un producto pero falta cantidad, pregunta la cantidad.
-- Si el cliente pide cantidad y un solo producto, llama a add_menu_item.
-- Si el cliente pide varios productos en la misma frase, llama una sola vez a add_multiple_menu_items.
-- Después de add_menu_item, add_multiple_menu_items o remove_menu_item, confirma brevemente el resumen del pedido y pregunta si quiere algo más.
-- Si el cliente cambia de opinión, llama a remove_menu_item.
-- Si el cliente pregunta qué hay en el menú, resume dos o tres opciones y pregunta qué desea.
-- Llama a return_to_main_menu solo si el cliente dice claramente que quiere dejar el pedido y reservar mesa.
-- Si es recogida, pide teléfono de contacto.
-- Si es entrega, pide teléfono y dirección de entrega.
-- No finalices hasta tener productos, nombre, teléfono, tipo de pedido y dirección si es entrega.
-- Mantén respuestas habladas breves porque ElevenLabs las leerá en voz alta.""",
-            }
-        ],
-        functions=[
-            add_menu_item,
-            add_multiple_menu_items,
-            remove_menu_item,
-            prepare_checkout,
-            return_to_main_menu,
-        ],
-    )
-
-
-def create_order_confirmation_node() -> NodeConfig:
-    """Crea el nodo que repasa el pedido antes de enviarlo definitivamente."""
-    return NodeConfig(
-        name="order_confirmation",
-        task_messages=[
-            {
-                "role": "developer",
-                "content": (
-                    "Lee el pedido completo, el nombre del cliente, si es recogida "
-                    "o entrega, el teléfono y, si es entrega, la dirección. "
-                    "Para leer el teléfono usa phone_spoken, no phone_number. "
-                    "Da el desglose por producto usando order_summary y después el total "
-                    "con total_text. No digas solo el total. Pregunta si todo es correcto. "
-                    "No hagas otra pregunta hasta que confirme o pida cambios. "
-                    "Usa complete_order cuando el cliente confirme. Usa revise_order "
-                    "si el cliente quiere cambiar algo. Si confirma, complete_order debe "
-                    "llevar al nodo final, que dará las gracias y se despedirá."
-                ),
-            }
-        ],
-        functions=[complete_order, revise_order, return_to_main_menu],
-    )
+    }, TRANSITION_IN_YAML

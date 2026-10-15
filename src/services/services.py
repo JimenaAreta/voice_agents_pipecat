@@ -10,9 +10,6 @@ from pipecat.services.openai.responses.llm import (
     OpenAIResponsesLLMService,
 )
 
-from services.common_nodes import ROLE_MESSAGE
-
-
 def create_openai_llm() -> OpenAIResponsesLLMService:
     """Crea el servicio LLM de OpenAI.
 
@@ -32,7 +29,6 @@ def create_openai_llm() -> OpenAIResponsesLLMService:
         api_key=os.getenv("OPENAI_API_KEY"),
         settings=llm_service.Settings(
             model=os.getenv("OPENAI_MODEL", "gpt-4.1-nano"),
-            system_instruction=ROLE_MESSAGE,
             temperature=0.2,
             max_completion_tokens=140,
         ),
@@ -51,10 +47,13 @@ def create_deepgram_stt() -> DeepgramSTTService:
     if os.getenv("DEEPGRAM_UTTERANCE_END_MS"):
         settings["utterance_end_ms"] = int(os.getenv("DEEPGRAM_UTTERANCE_END_MS", "700"))
 
-    return DeepgramSTTService(
-        api_key=os.getenv("DEEPGRAM_API_KEY"),
-        settings=DeepgramSTTService.Settings(**settings),
-    )
+    service_kwargs = {
+        "api_key": os.getenv("DEEPGRAM_API_KEY"),
+        "settings": DeepgramSTTService.Settings(**settings),
+    }
+    if os.getenv("DEEPGRAM_TTFS_P99_LATENCY"):
+        service_kwargs["ttfs_p99_latency"] = float(os.environ["DEEPGRAM_TTFS_P99_LATENCY"])
+    return DeepgramSTTService(**service_kwargs)
 
 
 def create_elevenlabs_tts(
