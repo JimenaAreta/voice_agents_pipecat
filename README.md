@@ -16,28 +16,6 @@ El calendario de demo combina días completamente libres, días completos y día
 distintas horas ocupadas. Cada mes se genera de forma reproducible al consultarlo,
 sin sobrescribir cambios posteriores ni reservas existentes.
 
-Octubre de 2026 está inicializado en la base local. Por ejemplo, el 21 tiene todas
-las horas habilitadas, el 22 está completo y el 23 tiene libres las 18:00, 20:00 y
-22:00, salvo las reservas que se añadan después. Las fechas relativas se resuelven
-antes de consultar el calendario.
-Cada fecha y hora admite una reserva, independientemente del número de personas.
-Al confirmarla, el hueco queda ocupado para las siguientes llamadas, incluso después
-de reiniciar el servidor; la misma hora en otra fecha sigue disponible. La comprobación
-y el guardado son una única transacción para evitar reservas simultáneas del mismo
-hueco. Si otro cliente se adelanta, el agente ofrece las horas que aún quedan libres.
-
-La base de datos conserva nombre y teléfono y está excluida de Git. El agente solo
-confirma después de guardar; si falla, ofrece reintentar sin duplicar el registro.
-No hay integración con una API del restaurante ni borrado automático de registros.
-
-Los días «hoy», «mañana», «pasado mañana» y «pasado» (equivalente a pasado mañana)
-se resuelven a una fecha concreta usando la zona `Europe/Madrid`. La reserva guarda
-esa fecha en formato ISO y la confirmación la expresa en castellano. Otras fechas
-habladas, como «el viernes», se conservan como texto.
-
-El saludo identifica al agente como asistente virtual. Tras una interrupción sin
-transcripción, pide repetir en español, con una recuperación consecutiva como máximo.
-
 ## Stack
 
 - VAD: Silero
