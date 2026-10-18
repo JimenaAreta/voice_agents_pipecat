@@ -1,6 +1,7 @@
 """Utilidades para preparar textos que se pronuncian mejor por TTS."""
 
 import re
+from datetime import date
 from decimal import Decimal
 
 
@@ -101,3 +102,29 @@ def format_time_for_speech(time_text: str) -> str:
 def format_times_for_speech(times: list[str]) -> str:
     """Devuelve varias horas en lenguaje natural, separadas por comas."""
     return ", ".join(format_time_for_speech(time) for time in times)
+
+
+_MONTHS = (
+    "enero", "febrero", "marzo", "abril", "mayo", "junio",
+    "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre",
+)
+
+
+def format_date_for_speech(date_text: str) -> str:
+    """Lee fechas numéricas españolas o ISO sin reinterpretar fechas habladas."""
+    text = date_text.strip()
+    spanish = re.fullmatch(r"(\d{1,2})/(\d{1,2})(?:/(\d{4}))?", text)
+    iso = re.fullmatch(r"(\d{4})-(\d{2})-(\d{2})", text)
+    if spanish:
+        day, month = int(spanish[1]), int(spanish[2])
+        year = int(spanish[3]) if spanish[3] else None
+    elif iso:
+        year, month, day = map(int, iso.groups())
+    else:
+        return text
+    try:
+        date(year if year is not None else 2000, month, day)
+    except ValueError:
+        return text
+    spoken = f"el {_number_under_100(day)} de {_MONTHS[month - 1]}"
+    return f"{spoken} de {year}" if year is not None else spoken

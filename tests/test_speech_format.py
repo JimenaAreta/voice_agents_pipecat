@@ -24,3 +24,13 @@ def test_reservation_times_are_natural_spanish():
     assert format_times_for_speech(["18:00", "22:00"]) == (
         "las seis de la tarde, las diez de la noche"
     )
+
+
+def test_numeric_dates_are_spoken_without_changing_natural_dates():
+    from services.speech_format import format_date_for_speech
+
+    assert format_date_for_speech("12/10") == "el doce de octubre"
+    assert format_date_for_speech("2026-10-12") == "el doce de octubre de 2026"
+    assert format_date_for_speech("mañana") == "mañana"
+    assert format_date_for_speech("31/02") == "31/02"
+    assert format_date_for_speech("29/02/2025") == "29/02/2025"

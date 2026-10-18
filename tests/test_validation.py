@@ -16,7 +16,8 @@ def test_contact_validation():
     assert normalize_phone("123") is None
     assert normalize_address(" Calle Mayor, 10 ") == "Calle Mayor, 10"
     assert normalize_address("x") is None
-    assert normalize_reservation_date(" mañana ") == "mañana"
+    from datetime import date
+    assert normalize_reservation_date(" mañana ", today=date(2026, 10, 18)) == "2026-10-19"
 
 
 def test_voice_settings_defaults(monkeypatch):
@@ -45,3 +46,38 @@ def test_required_api_keys(monkeypatch):
         monkeypatch.delenv(name, raising=False)
     with pytest.raises(ConfigurationError, match="OPENAI_API_KEY"):
         validate_required_api_keys()
+
+
+@pytest.mark.parametrize(("text", "expected"), [
+    ("hoy", "2026-10-18"),
+    (" MAÑANA ", "2026-10-19"),
+    ("pasado mañana", "2026-10-20"),
+    ("pasado", "2026-10-20"),
+    ("pasado   mañana", "2026-10-20"),
+])
+def test_relative_reservation_dates(text, expected):
+    from datetime import date
+    assert normalize_reservation_date(text, today=date(2026, 10, 18)) == expected
+
+
+@pytest.mark.parametrize(("reference", "expected"), [
+    ("2026-12-31", "2027-01-02"),
+    ("2028-02-28", "2028-03-01"),
+    ("2026-02-28", "2026-03-02"),
+])
+def test_relative_dates_cross_calendar_boundaries(reference, expected):
+    from datetime import date
+    assert normalize_reservation_date("pasado", today=date.fromisoformat(reference)) == expected
+
+
+def test_restaurant_date_uses_madrid_at_utc_day_boundary(monkeypatch):
+    from datetime import datetime, timezone
+    from services import validation
+
+    class FixedDatetime(datetime):
+        @classmethod
+        def now(cls, tz):
+            return datetime(2026, 10, 18, 23, 30, tzinfo=timezone.utc).astimezone(tz)
+
+    monkeypatch.setattr(validation, "datetime", FixedDatetime)
+    assert normalize_reservation_date("mañana") == "2026-10-20"

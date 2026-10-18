@@ -20,6 +20,7 @@ from pipecat.processors.aggregators.llm_response_universal import (
     LLMUserAggregatorParams,
 )
 from pipecat.transports.base_transport import BaseTransport
+from pipecat.turns.empty_user_turn import EmptyUserTurnConfig
 from pipecat.turns.user_start import (
     TranscriptionUserTurnStartStrategy,
     VADUserTurnStartStrategy,
@@ -84,6 +85,14 @@ def create_voice_pipeline(
             user_turn_strategies=create_user_turn_strategies(settings),
             vad_analyzer=create_vad_analyzer(settings),
             filter_incomplete_user_turns=False,
+            empty_user_turn=EmptyUserTurnConfig(
+                interrupted_prompt=(
+                    "El usuario te ha interrumpido, pero no se ha reconocido lo que dijo. "
+                    "Pide brevemente que lo repita en español y repite tu última pregunta "
+                    "si no llegó a escucharla. No llames a herramientas ni inventes datos."
+                ),
+                max_consecutive_recoveries=1,
+            ),
         ),
     )
 

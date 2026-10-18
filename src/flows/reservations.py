@@ -1,9 +1,8 @@
-"""Flujo de reservas de mesa inspirado en `restaurant_reservation.py`.
+"""Flujo de reservas con disponibilidad y confirmaciones persistentes en SQLite."""
 
-El ejemplo original de Pipecat Flows comprueba disponibilidad con un sistema
-simulado. Aquí mantenemos esa idea, pero en español y dentro de El Rincón de Castilla.
-"""
-
+import asyncio
+import sqlite3
+from uuid import uuid4
 from typing import TypedDict
 
 from loguru import logger
@@ -11,34 +10,27 @@ from pipecat.flows import FlowManager
 from pipecat.flows.types import TRANSITION_IN_YAML
 
 from services.speech_format import (
+    format_date_for_speech,
     format_phone_for_speech,
     format_time_for_speech,
     format_times_for_speech,
 )
+from services.reservation_store import SlotUnavailableError, available_times, save_reservation
 from services.validation import normalize_name, normalize_phone, normalize_reservation_date
 
 
-class MockReservationSystem:
-    """Simula una API de reservas del restaurante."""
-
-    def __init__(self) -> None:
-        # Horas que simulamos como completas. El LLM trabajará con formato 24h.
-        self.booked_times = {"20:00", "21:00"}
+class ReservationSystem:
+    """Consulta la disponibilidad persistida sin bloquear el pipeline de audio."""
 
     async def check_availability(
         self, party_size: int, reservation_date: str, requested_time: str
     ) -> tuple[bool, list[str]]:
-        """Comprueba si hay mesa disponible para fecha, tamaño y hora solicitados."""
-        is_available = requested_time not in self.booked_times
-        alternatives: list[str] = []
-        if not is_available:
-            base_times = ["18:00", "19:00", "20:00", "21:00", "22:00"]
-            alternatives = [time for time in base_times if time not in self.booked_times]
-
-        return is_available, alternatives
+        times = await asyncio.to_thread(available_times, reservation_date)
+        available = requested_time in times
+        return available, [] if available else times
 
 
-reservation_system = MockReservationSystem()
+reservation_system = ReservationSystem()
 
 VALID_RESERVATION_TIMES = {"18:00", "19:00", "20:00", "21:00", "22:00"}
 TIME_ALIASES = {
@@ -87,6 +79,7 @@ class AvailabilityResult(TypedDict):
 
     status: str
     reservation_date: str
+    reservation_date_spoken: str
     party_size: int
     requested_time: str
     requested_time_spoken: str
@@ -100,6 +93,7 @@ class ReservationStartResult(TypedDict):
 
     status: str
     reservation_date: str
+    reservation_date_spoken: str
     party_size: int
     requested_time: str
     requested_time_spoken: str
@@ -113,6 +107,7 @@ class ReservationResult(TypedDict):
 
     status: str
     reservation_date: str
+    reservation_date_spoken: str
     party_size: int
     reservation_time: str
     reservation_time_spoken: str
@@ -150,6 +145,7 @@ def build_start_result(
     return {
         "status": status,
         "reservation_date": flow_manager.state.get("reservation_date") or "",
+        "reservation_date_spoken": format_date_for_speech(flow_manager.state.get("reservation_date") or ""),
         "party_size": party_size,
         "requested_time": requested_time,
         "requested_time_spoken": format_time_for_speech(requested_time),
@@ -172,6 +168,7 @@ def build_availability_result(
     return {
         "status": status,
         "reservation_date": flow_manager.state.get("reservation_date") or "",
+        "reservation_date_spoken": format_date_for_speech(flow_manager.state.get("reservation_date") or ""),
         "party_size": flow_manager.state.get("reservation_party_size") or 0,
         "requested_time": requested_time,
         "requested_time_spoken": format_time_for_speech(requested_time),
@@ -187,9 +184,16 @@ async def find_available_table(
     """Consulta disponibilidad; el YAML elegirá la siguiente etapa."""
     party_size = flow_manager.state["reservation_party_size"]
     reservation_date = flow_manager.state["reservation_date"]
-    is_available, alternative_times = await reservation_system.check_availability(
-        party_size, reservation_date, requested_time
-    )
+    try:
+        is_available, alternative_times = await reservation_system.check_availability(
+            party_size, reservation_date, requested_time
+        )
+    except (OSError, sqlite3.Error):
+        logger.warning("No se ha podido consultar la disponibilidad")
+        flow_manager.state["reservation_time"] = None
+        return build_availability_result(
+            flow_manager, "error_disponibilidad", requested_time
+        ), TRANSITION_IN_YAML
     flow_manager.state["reservation_time"] = requested_time if is_available else None
     flow_manager.state["alternative_times_spoken"] = format_times_for_speech(
         alternative_times
@@ -221,6 +225,7 @@ def build_reservation_result(
     return {
         "status": status,
         "reservation_date": flow_manager.state.get("reservation_date") or "",
+        "reservation_date_spoken": format_date_for_speech(flow_manager.state.get("reservation_date") or ""),
         "party_size": flow_manager.state.get("reservation_party_size") or 0,
         "reservation_time": reservation_time,
         "reservation_time_spoken": format_time_for_speech(reservation_time),
@@ -377,7 +382,7 @@ async def check_reservation_availability(
 
 async def confirm_reservation(
     flow_manager: FlowManager, customer_name: str, phone_number: str
-) -> tuple[ReservationResult, object]:
+) -> tuple[ReservationResult | AvailabilityResult, object]:
     """
     Confirma la reserva con nombre y teléfono del cliente.
 
@@ -414,9 +419,16 @@ async def confirm_reservation(
     flow_manager.state["reservation_name"] = normalized_name
     flow_manager.state["reservation_phone"] = normalized_phone
 
-    return build_reservation_result(
-        flow_manager,
-        "reserva_confirmada",
-        flow_manager.state["reservation_name"],
-        flow_manager.state["reservation_phone"],
-    ), TRANSITION_IN_YAML
+    result = build_reservation_result(
+        flow_manager, "reserva_confirmada", normalized_name, normalized_phone
+    )
+    reservation_id = flow_manager.state.setdefault("reservation_id", str(uuid4()))
+    try:
+        await asyncio.to_thread(save_reservation, reservation_id, result)
+    except SlotUnavailableError:
+        return await find_available_table(flow_manager, result["reservation_time"])
+    except (OSError, sqlite3.Error):
+        # No registrar nombre, teléfono ni detalles de la excepción.
+        logger.warning("No se ha podido guardar la reserva")
+        result["status"] = "error_guardado"
+    return result, TRANSITION_IN_YAML

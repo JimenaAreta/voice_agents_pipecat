@@ -1,6 +1,8 @@
 """Validaciones deterministas para datos recibidos por herramientas del LLM."""
 
 import re
+from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 
 def normalize_phone(phone_number: str) -> str | None:
@@ -29,9 +31,19 @@ def normalize_address(address: str) -> str | None:
     return clean_address
 
 
-def normalize_reservation_date(date_text: str) -> str | None:
-    """Acepta fechas habladas sin inventar interpretación calendárica."""
+def restaurant_today() -> date:
+    """Fecha del restaurante, independiente de la zona horaria del servidor."""
+    return datetime.now(ZoneInfo("Europe/Madrid")).date()
+
+
+def normalize_reservation_date(date_text: str, *, today: date | None = None) -> str | None:
+    """Resuelve días relativos a ISO; conserva otras fechas habladas."""
     clean_date = " ".join(date_text.split())
     if len(clean_date) < 3 or len(clean_date) > 80:
         return None
+    relative_days = {"hoy": 0, "mañana": 1, "pasado mañana": 2, "pasado": 2}
+    offset = relative_days.get(clean_date.casefold())
+    if offset is not None:
+        reference = today if today is not None else restaurant_today()
+        return (reference + timedelta(days=offset)).isoformat()
     return clean_date

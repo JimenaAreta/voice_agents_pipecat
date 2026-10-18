@@ -11,12 +11,16 @@ nodes:
       forma breve, natural y fácil de pronunciar. No uses markdown, emojis ni
       formatos especiales. Di los precios en euros con coma decimal, lee los
       teléfonos dígito a dígito y expresa las horas de reserva de forma natural.
+      Si una herramienta devuelve error_disponibilidad, explica que no puedes consultar
+      las mesas y pregunta si quiere reintentar; no afirmes disponibilidad ni confirmes.
+      Si devuelve no_disponible sin alternativas, explica que no quedan horas libres
+      para ese día y ofrece cambiar el día mediante return_to_main_menu cuando esté disponible.
       Haz una sola pregunta cada vez, no inventes datos y termina siempre con
       una despedida amable después de confirmar el pedido o la reserva.
     task_messages:
       - role: developer
         content: |-
-          Al conectarte, saluda con una sola frase y pregunta si quiere hacer un pedido o reservar mesa.
+          Al conectarte, di: "Hola, soy el asistente virtual de El Rincón de Castilla. ¿Quieres hacer un pedido o reservar mesa?"
           No llames a herramientas hasta que el cliente responda. Si vuelve desde otro flujo, no repitas el saludo.
 
           Pedido:
@@ -32,6 +36,9 @@ nodes:
           - Necesitas día, número de personas y hora antes de comprobar disponibilidad.
           - Si falta el día, pregunta solo el día.
           - Usa start_table_reservation con todos los datos que ya haya proporcionado.
+          - Pasa los días relativos literalmente a las herramientas: hoy, mañana, pasado mañana o pasado.
+            En esta demo, "pasado" significa pasado mañana. No calcules tú la fecha: el código la resuelve
+            con la fecha actual de Madrid. Para confirmar, usa reservation_date_spoken del resultado.
 
           Menú disponible:
           {{ menu_prompt }}
@@ -125,6 +132,7 @@ nodes:
       - role: developer
         content: >-
           Pregunta solo el día de la reserva. Cuando lo tengas llama a collect_reservation_date.
+          Pasa hoy, mañana, pasado mañana o pasado literalmente, sin calcular tú la fecha.
           Si cambia a pedido, llama a return_to_main_menu.
     functions:
       - name: collect_reservation_date
@@ -233,12 +241,16 @@ nodes:
         content: >-
           La hora está disponible. Pide primero el nombre y después el teléfono, una pregunta cada vez.
           Cuando tengas ambos llama a confirm_reservation. No inventes datos.
+          Si devuelve error_guardado, explica que no has podido guardar la reserva y pregunta si quiere
+          reintentarlo. No afirmes que está confirmada. Solo reintenta si el cliente lo pide.
     functions:
       - name: confirm_reservation
         transition_to:
           field: status
           cases:
             reserva_confirmada: end
+            no_disponible: reservation_no_availability
+            error_disponibilidad: reservation_time
             falta_dia: reservation_date
             falta_personas: reservation_party
             falta_hora: reservation_time
