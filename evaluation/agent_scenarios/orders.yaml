@@ -1,0 +1,26 @@
+name: restaurant_orders
+
+scenarios:
+  - name: multiple_items_and_checkout
+    turns:
+      - user: "Quiero dos tortillas y una de croquetas."
+        expect:
+          - event: function_call
+            calls:
+              - name: add_multiple_menu_items
+          - event: response
+            eval: "resume los productos añadidos y pregunta si quiere algo más"
+      - user: "Nada más. Soy Ana, lo recojo y mi teléfono es 612 345 678."
+        expect:
+          - event: function_call
+            calls:
+              - name: prepare_checkout
+          - event: response
+            eval: "lee el desglose, el total y solicita confirmación"
+
+  - name: ambiguous_selection
+    turns:
+      - user: "Quiero un poco de todo."
+        expect:
+          - event: response
+            eval: "pide aclaración sin añadir todavía productos"

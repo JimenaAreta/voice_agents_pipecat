@@ -1,4 +1,4 @@
-"""Carga el flujo declarativo y lo conecta con sus handlers Python."""
+"""Loads the declarative flow and wires it to its Python handlers."""
 
 from pathlib import Path
 
@@ -12,6 +12,6 @@ FLOW_FILE = Path(__file__).with_name("restaurant.yaml")
 
 
 def load_restaurant_flow() -> Flow:
-    """Valida el YAML y resuelve los nombres de sus handlers Python."""
+    """Validates the YAML and resolves the names of its Python handlers."""
     config = FlowConfig.from_file(FLOW_FILE)
     return Flow(config, handlers=[ordering, reservations, common_nodes])

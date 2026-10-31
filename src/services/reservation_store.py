@@ -1,4 +1,4 @@
-"""Disponibilidad y reservas persistentes de la demo: un hueco por fecha y hora."""
+"""Persistent demo availability and reservations: one slot per date and time."""
 
 import calendar
 from datetime import date
@@ -9,7 +9,7 @@ import sqlite3
 
 
 TIMES = ("18:00", "19:00", "20:00", "21:00", "22:00")
-# Patrón reproducible de demo: días libres, completos y con distintas horas ocupadas.
+# Reproducible demo pattern: free days, full days, and different occupied hours.
 _FREE_HOURS = (
     TIMES,
     (),
@@ -22,7 +22,7 @@ _FREE_HOURS = (
 
 
 class SlotUnavailableError(Exception):
-    """Otra reserva o la configuración inicial bloquean el hueco solicitado."""
+    """Another reservation or the initial configuration blocks the requested slot."""
 
 
 def _connect() -> sqlite3.Connection:
@@ -56,7 +56,7 @@ def _initialize(connection: sqlite3.Connection) -> None:
             PRIMARY KEY(date, time)
         )"""
     )
-    # INSERT OR IGNORE conserva cambios posteriores y no reinicia la disponibilidad.
+    # INSERT OR IGNORE preserves later edits and does not reset availability.
     connection.executemany(
         "INSERT OR IGNORE INTO reservation_schedule(time, enabled) VALUES (?, ?)",
         [("18:00", 1), ("19:00", 1), ("20:00", 0), ("21:00", 0), ("22:00", 1)],
@@ -77,7 +77,7 @@ def _seed_calendar(connection: sqlite3.Connection, year: int, month: int) -> Non
 
 
 def initialize_calendar(year: int, month: int) -> None:
-    """Crea el mes completo sin sobrescribir huecos existentes ni reservas."""
+    """Creates the full month without overwriting existing slots or reservations."""
     with closing(_connect()) as connection, connection:
         _initialize(connection)
         _seed_calendar(connection, year, month)
@@ -87,7 +87,7 @@ def _schedule(connection: sqlite3.Connection, reservation_date: str) -> dict[str
     try:
         requested_date = date.fromisoformat(reservation_date)
     except ValueError:
-        # Compatibilidad con fechas textuales del ejemplo anterior.
+        # Backward compatibility with textual dates from the previous example.
         return dict(connection.execute("SELECT time, enabled FROM reservation_schedule"))
     _seed_calendar(connection, requested_date.year, requested_date.month)
     return dict(connection.execute(
@@ -96,7 +96,7 @@ def _schedule(connection: sqlite3.Connection, reservation_date: str) -> dict[str
 
 
 def available_times(reservation_date: str) -> list[str]:
-    """Lee los huecos libres de una fecha; incluye reservas de llamadas anteriores."""
+    """Reads available time slots for a date, including past call reservations."""
     with closing(_connect()) as connection, connection:
         _initialize(connection)
         schedule = _schedule(connection, reservation_date)
@@ -106,11 +106,10 @@ def available_times(reservation_date: str) -> list[str]:
         return sorted(time for time, enabled in schedule.items() if enabled and time not in occupied)
 
 
-
 def save_reservation(reservation_id: str, details: dict) -> None:
-    """Comprueba y ocupa el hueco en una transacción; los reintentos son idempotentes."""
+    """Checks and claims the slot in a transaction; retries are idempotent."""
     with closing(_connect()) as connection, connection:
-        # Serializa la comprobación y escritura entre conexiones/procesos.
+        # Serializes the check and write across connections/processes.
         connection.execute("BEGIN IMMEDIATE")
         _initialize(connection)
         enabled = _schedule(connection, details["reservation_date"]).get(details["reservation_time"], False)

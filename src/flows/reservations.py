@@ -1,4 +1,4 @@
-"""Flujo de reservas con disponibilidad y confirmaciones persistentes en SQLite."""
+"""Reservation flow with persistent availability and confirmations in SQLite."""
 
 import asyncio
 import sqlite3
@@ -20,7 +20,7 @@ from services.validation import normalize_name, normalize_phone, normalize_reser
 
 
 class ReservationSystem:
-    """Consulta la disponibilidad persistida sin bloquear el pipeline de audio."""
+    """Queries persistent availability without blocking the audio pipeline."""
 
     async def check_availability(
         self, party_size: int, reservation_date: str, requested_time: str
@@ -68,14 +68,14 @@ TIME_ALIASES = {
 
 
 class PartySizeResult(TypedDict):
-    """Resultado de recoger el número de comensales."""
+    """Result of collecting the number of diners."""
 
     party_size: int
     status: str
 
 
 class AvailabilityResult(TypedDict):
-    """Resultado de comprobar disponibilidad."""
+    """Result of checking availability."""
 
     status: str
     reservation_date: str
@@ -89,7 +89,7 @@ class AvailabilityResult(TypedDict):
 
 
 class ReservationStartResult(TypedDict):
-    """Resultado de iniciar una reserva desde el primer turno."""
+    """Result of starting a reservation from the first turn."""
 
     status: str
     reservation_date: str
@@ -103,7 +103,7 @@ class ReservationStartResult(TypedDict):
 
 
 class ReservationResult(TypedDict):
-    """Resultado final de la reserva."""
+    """Final reservation result."""
 
     status: str
     reservation_date: str
@@ -117,7 +117,7 @@ class ReservationResult(TypedDict):
 
 
 def ensure_reservation_state(flow_manager: FlowManager) -> None:
-    """Inicializa el estado necesario para una reserva."""
+    """Initializes the state required for a reservation."""
     flow_manager.state.setdefault("reservation_date", None)
     flow_manager.state.setdefault("reservation_party_size", None)
     flow_manager.state.setdefault("reservation_time", None)
@@ -126,7 +126,7 @@ def ensure_reservation_state(flow_manager: FlowManager) -> None:
 
 
 def normalize_reservation_time(requested_time: str) -> str | None:
-    """Normaliza horas habladas o escritas al formato 24h usado por el flujo."""
+    """Normalizes spoken or written time values to the 24h format used by the flow."""
     clean_time = requested_time.strip().lower()
     return TIME_ALIASES.get(clean_time)
 
@@ -140,7 +140,7 @@ def build_start_result(
     available: bool | None = None,
     alternative_times: list[str] | None = None,
 ) -> ReservationStartResult:
-    """Construye la respuesta común mientras se recogen los datos básicos."""
+    """Builds the shared response while basic details are collected."""
     alternatives = alternative_times or []
     return {
         "status": status,
@@ -163,7 +163,7 @@ def build_availability_result(
     available: bool = False,
     alternative_times: list[str] | None = None,
 ) -> AvailabilityResult:
-    """Construye una respuesta uniforme para cualquier comprobación de mesa."""
+    """Builds a consistent response for any table-check operation."""
     alternatives = alternative_times or []
     return {
         "status": status,
@@ -181,7 +181,7 @@ def build_availability_result(
 async def find_available_table(
     flow_manager: FlowManager, requested_time: str
 ) -> tuple[AvailabilityResult, object]:
-    """Consulta disponibilidad; el YAML elegirá la siguiente etapa."""
+    """Checks availability; the YAML will choose the next stage."""
     party_size = flow_manager.state["reservation_party_size"]
     reservation_date = flow_manager.state["reservation_date"]
     try:
@@ -189,7 +189,7 @@ async def find_available_table(
             party_size, reservation_date, requested_time
         )
     except (OSError, sqlite3.Error):
-        logger.warning("No se ha podido consultar la disponibilidad")
+        logger.warning("Could not check availability")
         flow_manager.state["reservation_time"] = None
         return build_availability_result(
             flow_manager, "error_disponibilidad", requested_time
@@ -207,10 +207,10 @@ async def find_available_table(
         alternative_times=alternative_times,
     )
     if is_available:
-        logger.debug("Hora disponible, pasamos a datos de confirmación.")
+        logger.debug("Time is available; moving to confirmation details.")
         return result, TRANSITION_IN_YAML
 
-    logger.debug(f"Hora no disponible. Alternativas: {alternative_times}")
+    logger.debug(f"Time unavailable. Alternatives: {alternative_times}")
     return result, TRANSITION_IN_YAML
 
 
@@ -220,7 +220,7 @@ def build_reservation_result(
     customer_name: str,
     phone_number: str,
 ) -> ReservationResult:
-    """Resume los datos de confirmación sin repetir claves en cada rama."""
+    """Summarizes confirmation data without repeating keys in each branch."""
     reservation_time = flow_manager.state.get("reservation_time") or ""
     return {
         "status": status,
@@ -428,7 +428,7 @@ async def confirm_reservation(
     except SlotUnavailableError:
         return await find_available_table(flow_manager, result["reservation_time"])
     except (OSError, sqlite3.Error):
-        # No registrar nombre, teléfono ni detalles de la excepción.
-        logger.warning("No se ha podido guardar la reserva")
+        # Do not log the name, phone number, or exception details.
+        logger.warning("Could not save reservation")
         result["status"] = "error_guardado"
     return result, TRANSITION_IN_YAML

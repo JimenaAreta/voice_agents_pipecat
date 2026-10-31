@@ -1,4 +1,4 @@
-"""Utilidades para preparar textos que se pronuncian mejor por TTS."""
+"""Utilities to prepare texts that speak better through TTS."""
 
 import re
 from datetime import date
@@ -63,7 +63,7 @@ def _number_under_1000(number: int) -> str:
 
 
 def format_euros_for_speech(amount: Decimal | float | int) -> str:
-    """Expresa un importe con palabras para evitar lecturas ambiguas del TTS."""
+    """Expresses an amount in words to avoid ambiguous TTS readings."""
     value = Decimal(str(amount)).quantize(Decimal("0.01"))
     euros = int(value)
     cents = int((value - euros) * 100)
@@ -86,7 +86,7 @@ def format_euros_for_speech(amount: Decimal | float | int) -> str:
 
 
 def format_phone_for_speech(phone_number: str) -> str:
-    """Devuelve un teléfono como dígitos leídos uno detrás de otro."""
+    """Returns a phone number as digits spoken one after another."""
     digits = re.sub(r"\D", "", phone_number)
     if not digits:
         return phone_number.strip()
@@ -95,12 +95,12 @@ def format_phone_for_speech(phone_number: str) -> str:
 
 
 def format_time_for_speech(time_text: str) -> str:
-    """Devuelve una hora de reserva en lenguaje natural para castellano."""
+    """Returns a reservation time in natural language."""
     return TIME_SPEECH.get(time_text, time_text)
 
 
 def format_times_for_speech(times: list[str]) -> str:
-    """Devuelve varias horas en lenguaje natural, separadas por comas."""
+    """Returns several times in natural language, separated by commas."""
     return ", ".join(format_time_for_speech(time) for time in times)
 
 
@@ -111,7 +111,7 @@ _MONTHS = (
 
 
 def format_date_for_speech(date_text: str) -> str:
-    """Lee fechas numéricas españolas o ISO sin reinterpretar fechas habladas."""
+    """Reads numeric Spanish or ISO dates without reinterpreting spoken dates."""
     text = date_text.strip()
     spanish = re.fullmatch(r"(\d{1,2})/(\d{1,2})(?:/(\d{4}))?", text)
     iso = re.fullmatch(r"(\d{4})-(\d{2})-(\d{2})", text)

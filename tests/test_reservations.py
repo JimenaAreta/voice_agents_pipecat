@@ -67,7 +67,13 @@ async def test_unavailable_time_offers_alternatives():
 
 
 @pytest.mark.asyncio
-async def test_complete_initial_request_reaches_contact_details():
+async def test_complete_initial_request_reaches_contact_details(monkeypatch):
+    from datetime import date
+
+    from services import validation
+
+    # «Mañana» es el 14/10/2026, que en el calendario de demo tiene todas las horas libres.
+    monkeypatch.setattr(validation, "restaurant_today", lambda: date(2026, 10, 13))
     flow = FakeFlowManager()
     result, transition = await start_table_reservation(flow, "mañana", 4, "19:00")
     assert result["status"] == "disponible"

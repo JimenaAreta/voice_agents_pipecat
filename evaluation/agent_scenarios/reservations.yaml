@@ -1,0 +1,58 @@
+name: restaurant_reservations
+
+scenarios:
+  - name: available_table
+    turns:
+      - user: "Quiero reservar mañana para cuatro personas a las siete de la tarde."
+        expect:
+          - event: function_call
+            calls:
+              - name: start_table_reservation
+                args:
+                  reservation_date: "mañana"
+                  party_size: 4
+                  requested_time: "19:00"
+          - event: response
+            eval: "pide el nombre o el teléfono para completar una reserva disponible"
+      - user: "A nombre de Ana López y mi teléfono es 612 345 678."
+        expect:
+          - event: function_call
+            calls:
+              - name: confirm_reservation
+          - event: response
+            eval: "confirma la reserva y se despide en español"
+
+  - name: unavailable_table
+    turns:
+      - user: "Reserva para mañana, dos personas, a las ocho de la tarde."
+        expect:
+          - event: function_call
+            calls:
+              - name: start_table_reservation
+                args:
+                  reservation_date: "mañana"
+                  party_size: 2
+                  requested_time: "20:00"
+          - event: response
+            eval: "explica que la hora no está disponible y ofrece alternativas"
+      - user: "Entonces a las diez de la noche."
+        expect:
+          - event: function_call
+            calls:
+              - name: check_reservation_availability
+                args:
+                  requested_time: "22:00"
+
+  - name: change_to_ordering
+    turns:
+      - user: "Quiero reservar una mesa."
+        expect:
+          - event: response
+            eval: "pregunta únicamente por el día de la reserva"
+      - user: "Mejor quiero hacer un pedido de comida."
+        expect:
+          - event: function_call
+            calls:
+              - name: return_to_main_menu
+          - event: response
+            eval: "continúa con el pedido sin repetir el saludo inicial"

@@ -1,0 +1,320 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Escucha A/B</title>
+<style>
+  :root {
+    --bg: #f7f5fa; --surface: #ffffff; --text: #1f1530; --muted: #6b6280;
+    --accent: #c4185c; --accent-2: #4a1f8a; --border: #dcd6e6; --ok: #1d7a4f;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #17121f; --surface: #221a2e; --text: #f1edf7; --muted: #a79fb8;
+      --accent: #ff5c97; --accent-2: #b38cff; --border: #3a3048; --ok: #5fd39a;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  main { max-width: 760px; margin: 0 auto; padding: 24px 16px 48px; }
+  h1 { font-size: 1.5rem; margin: 0 0 4px; }
+  h2 { font-size: 1.1rem; margin: 0 0 12px; }
+  p.lead { color: var(--muted); margin: 0 0 20px; }
+  section {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 12px; padding: 20px; margin-bottom: 16px;
+  }
+  label { display: block; font-weight: 600; margin: 12px 0 4px; }
+  select, input[type=text], input[type=number], textarea {
+    width: 100%; padding: 8px 10px; border-radius: 8px; font: inherit;
+    border: 1px solid var(--border); background: var(--bg); color: var(--text);
+  }
+  textarea { min-height: 60px; resize: vertical; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; }
+  @media (max-width: 560px) { .grid { grid-template-columns: 1fr; } }
+  button {
+    font: inherit; font-weight: 600; border: 0; border-radius: 8px;
+    padding: 10px 16px; cursor: pointer; background: var(--accent); color: #fff;
+  }
+  button.secondary { background: transparent; color: var(--accent-2); border: 1px solid var(--accent-2); }
+  button:disabled { opacity: .4; cursor: not-allowed; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 16px; }
+  .note { color: var(--muted); font-size: .9rem; }
+  .warn { color: var(--accent); font-size: .9rem; }
+  .label-card { border: 1px solid var(--border); border-radius: 10px; padding: 16px; margin-top: 12px; }
+  .label-card h3 { margin: 0 0 8px; font-size: 1rem; color: var(--accent-2); }
+  .scale { display: flex; gap: 6px; flex-wrap: wrap; }
+  .scale label {
+    font-weight: 400; margin: 0; border: 1px solid var(--border); border-radius: 8px;
+    padding: 6px 10px; cursor: pointer; flex: 1 1 0; min-width: 44px; text-align: center;
+  }
+  .scale input { display: none; }
+  .scale label:has(input:checked) { background: var(--accent-2); color: #fff; border-color: var(--accent-2); }
+  .anchors { font-size: .8rem; color: var(--muted); margin-top: 4px; }
+  .fields label { font-weight: 400; display: flex; gap: 8px; align-items: center; margin: 4px 0; }
+  .hidden { display: none; }
+  .done { color: var(--ok); font-weight: 600; }
+  table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+  td, th { text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--border); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Escucha A/B</h1>
+  <p class="lead">Práctica 3 · voces locales del navegador · el operador configura y el evaluador no ve la configuración.</p>
+
+  <!-- 1. Operador -->
+  <section id="setup">
+    <h2>1. Configuración (solo operador)</h2>
+    <p class="note" id="voice-status">Cargando voces…</p>
+    <div class="grid">
+      <div>
+        <label for="voice-a">Voz A</label>
+        <select id="voice-a"></select>
+        <label for="rate-a">Velocidad A</label>
+        <input id="rate-a" type="number" min="0.5" max="2" step="0.05" value="1">
+      </div>
+      <div>
+        <label for="voice-b">Voz B</label>
+        <select id="voice-b"></select>
+        <label for="rate-b">Velocidad B</label>
+        <input id="rate-b" type="number" min="0.5" max="2" step="0.05" value="1">
+      </div>
+    </div>
+    <p class="note">Con dos voces en español: misma velocidad (1). Con una sola voz: compara 1 y 1,45; la conclusión será sobre configuraciones de esa voz, no sobre dos modelos.</p>
+    <div class="row">
+      <button id="test-a" class="secondary" type="button">Probar A</button>
+      <button id="test-b" class="secondary" type="button">Probar B</button>
+    </div>
+    <div class="row">
+      <button id="lock" type="button">Ocultar configuración y empezar</button>
+    </div>
+  </section>
+
+  <!-- 2. Evaluador -->
+  <section id="listener" class="hidden">
+    <h2>2. Evaluador</h2>
+    <label for="evaluator">Nombre o código del evaluador</label>
+    <input id="evaluator" type="text" autocomplete="off" placeholder="Evaluador 1">
+    <div class="row"><button id="start" type="button">Empezar la escucha</button></div>
+  </section>
+
+  <!-- 3. Escucha -->
+  <section id="trial" class="hidden">
+    <h2 id="trial-title"></h2>
+    <p class="note">Escucha cada audio (puedes repetirlo) y puntúa antes de comentar con el grupo.
+      Marca solo los datos que has entendido al oírlo.</p>
+    <div id="cards"></div>
+    <p class="warn hidden" id="trial-error"></p>
+    <div class="row"><button id="next" type="button">Guardar y continuar</button></div>
+  </section>
+
+  <!-- 4. Resultado -->
+  <section id="finish" class="hidden">
+    <h2>3. Exportar</h2>
+    <p><span class="done" id="row-count"></span></p>
+    <div class="row">
+      <button id="download" type="button">Descargar valoraciones.csv</button>
+      <button id="another" class="secondary" type="button">Otro evaluador</button>
+      <button id="reveal" class="secondary" type="button">Revelar configuración</button>
+    </div>
+    <div id="config-reveal" class="hidden" style="margin-top:16px"></div>
+    <p class="note" style="margin-top:16px">Después: <code>uv run python p03_ratings.py --csv valoraciones.csv</code></p>
+  </section>
+</main>
+
+<script>
+// Mismos identificadores y campos que LISTENING_TEXTS en schemas.py.
+const TEXTS = [
+  { id: "reserva", text: "Cuatro personas, viernes, veintiuna horas.",
+    fields: ["comensales", "día", "hora"] },
+  { id: "codigo_importe", text: "B siete K dos. Treinta y cinco euros con cincuenta céntimos.",
+    fields: ["código", "importe"] },
+  { id: "pregunta_alternativa", text: "¿Interior o terraza? Puede cambiar la hora antes de confirmar.",
+    fields: ["entonación de pregunta", "opción"] },
+];
+const ANCHORS = ["1 muy artificial", "2 artificial", "3 aceptable", "4 natural", "5 muy natural"];
+const COLUMNS = ["evaluador", "texto", "etiqueta", "naturalidad", "datos_correctos", "observacion"];
+
+const $ = (id) => document.getElementById(id);
+const synth = window.speechSynthesis;
+let voices = [];
+let config = null;
+let rows = [];
+let session = null;
+
+function shuffle(items) {
+  const copy = [...items];
+  for (let i = copy.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy;
+}
+
+function loadVoices() {
+  voices = synth ? synth.getVoices().filter((v) => v.lang.toLowerCase().startsWith("es")) : [];
+  if (!synth) {
+    $("voice-status").textContent = "Este navegador no tiene síntesis de voz.";
+    return;
+  }
+  if (!voices.length) {
+    $("voice-status").textContent = "No hay voces en español en este navegador.";
+    return;
+  }
+  for (const select of [$("voice-a"), $("voice-b")]) {
+    const current = select.value;
+    select.innerHTML = voices
+      .map((v, i) => `<option value="${i}">${v.name} (${v.lang})</option>`)
+      .join("");
+    if (current) select.value = current;
+  }
+  if (voices.length > 1 && !$("voice-b").dataset.touched) $("voice-b").value = "1";
+  if (voices.length === 1) $("rate-b").value = "1.45";
+  $("voice-status").textContent = voices.length === 1
+    ? "Solo hay una voz en español: se comparan velocidades (1 y 1,45)."
+    : `${voices.length} voces en español disponibles.`;
+}
+
+function speak(voiceIndex, rate, text) {
+  synth.cancel();
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.voice = voices[voiceIndex];
+  utterance.lang = voices[voiceIndex].lang;
+  utterance.rate = rate;
+  synth.speak(utterance);
+}
+
+function readConfig() {
+  return {
+    A: { voice: Number($("voice-a").value), rate: Number($("rate-a").value) },
+    B: { voice: Number($("voice-b").value), rate: Number($("rate-b").value) },
+  };
+}
+
+function show(id, visible) { $(id).classList.toggle("hidden", !visible); }
+
+function startSession() {
+  const evaluator = $("evaluator").value.trim();
+  if (!evaluator) { $("evaluator").focus(); return; }
+  // Orden aleatorio de textos y de etiquetas dentro de cada texto.
+  session = { evaluator, trials: shuffle(TEXTS).map((t) => ({ ...t, order: shuffle(["A", "B"]) })), index: 0 };
+  show("listener", false);
+  renderTrial();
+}
+
+function renderTrial() {
+  const trial = session.trials[session.index];
+  $("trial-title").textContent = `Texto ${session.index + 1} de ${session.trials.length} · campos: ${trial.fields.join(" · ")}`;
+  $("cards").innerHTML = trial.order.map((label) => `
+    <div class="label-card" data-label="${label}">
+      <h3>Audio ${label}</h3>
+      <button type="button" class="secondary play" data-label="${label}">▶ Escuchar ${label}</button>
+      <label>Naturalidad</label>
+      <div class="scale">
+        ${[1, 2, 3, 4, 5].map((n) => `<label><input type="radio" name="nat-${label}" value="${n}">${n}</label>`).join("")}
+      </div>
+      <div class="anchors">${ANCHORS.join(" · ")}</div>
+      <label>Datos que has entendido</label>
+      <div class="fields">
+        ${trial.fields.map((f, i) => `<label><input type="checkbox" name="field-${label}" value="${i}">${f}</label>`).join("")}
+      </div>
+      <label for="obs-${label}">Observación concreta</label>
+      <textarea id="obs-${label}" placeholder="p. ej. no distingo si dijo K o Q"></textarea>
+    </div>`).join("");
+  for (const button of document.querySelectorAll(".play")) {
+    button.addEventListener("click", () => {
+      const { voice, rate } = config[button.dataset.label];
+      speak(voice, rate, trial.text);
+    });
+  }
+  show("trial-error", false);
+  show("trial", true);
+}
+
+function saveTrial() {
+  const trial = session.trials[session.index];
+  const pending = [];
+  const newRows = trial.order.map((label) => {
+    const naturalness = document.querySelector(`input[name="nat-${label}"]:checked`);
+    const observation = $(`obs-${label}`).value.trim();
+    if (!naturalness) pending.push(`naturalidad de ${label}`);
+    if (!observation) pending.push(`observación de ${label}`);
+    return {
+      evaluador: session.evaluator,
+      texto: trial.id,
+      etiqueta: label,
+      naturalidad: naturalness ? naturalness.value : "",
+      datos_correctos: String(document.querySelectorAll(`input[name="field-${label}"]:checked`).length),
+      observacion: observation,
+    };
+  });
+  if (pending.length) {
+    $("trial-error").textContent = `Falta: ${pending.join(", ")}.`;
+    show("trial-error", true);
+    return;
+  }
+  synth.cancel();
+  rows.push(...newRows);
+  session.index += 1;
+  if (session.index < session.trials.length) {
+    renderTrial();
+  } else {
+    show("trial", false);
+    $("row-count").textContent = `${rows.length} valoraciones de ${new Set(rows.map((r) => r.evaluador)).size} evaluadores.`;
+    show("finish", true);
+  }
+}
+
+function toCsv() {
+  const escape = (value) => /[",\n]/.test(value) ? `"${value.replaceAll('"', '""')}"` : value;
+  return [COLUMNS.join(","), ...rows.map((row) => COLUMNS.map((c) => escape(row[c])).join(","))].join("\n") + "\n";
+}
+
+function download() {
+  const blob = new Blob([toCsv()], { type: "text/csv;charset=utf-8" });
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = "valoraciones.csv";
+  link.click();
+  URL.revokeObjectURL(link.href);
+}
+
+function reveal() {
+  if (!confirm("¿Revelar qué voz y velocidad corresponde a A y B?")) return;
+  $("config-reveal").innerHTML = `<table><tr><th>Etiqueta</th><th>Voz</th><th>Velocidad</th></tr>${
+    ["A", "B"].map((l) => `<tr><td>${l}</td><td>${voices[config[l].voice].name}</td><td>${config[l].rate}</td></tr>`).join("")
+  }</table>`;
+  show("config-reveal", true);
+}
+
+$("voice-b").addEventListener("change", (e) => { e.target.dataset.touched = "1"; });
+$("test-a").addEventListener("click", () => { const c = readConfig().A; speak(c.voice, c.rate, TEXTS[0].text); });
+$("test-b").addEventListener("click", () => { const c = readConfig().B; speak(c.voice, c.rate, TEXTS[0].text); });
+$("lock").addEventListener("click", () => {
+  if (!voices.length) return;
+  config = readConfig();
+  show("setup", false);
+  show("listener", true);
+  $("evaluator").focus();
+});
+$("start").addEventListener("click", startSession);
+$("next").addEventListener("click", saveTrial);
+$("download").addEventListener("click", download);
+$("another").addEventListener("click", () => {
+  show("finish", false);
+  show("config-reveal", false);
+  $("evaluator").value = "";
+  show("listener", true);
+});
+$("reveal").addEventListener("click", reveal);
+
+if (synth) synth.onvoiceschanged = loadVoices;
+loadVoices();
+</script>
+</body>
+</html>

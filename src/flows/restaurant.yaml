@@ -241,9 +241,16 @@ nodes:
         content: >-
           La hora está disponible. Pide primero el nombre y después el teléfono, una pregunta cada vez.
           Cuando tengas ambos llama a confirm_reservation. No inventes datos.
+          Si el cliente corrige el número de personas, llama a collect_party_size con el nuevo número antes de seguir.
           Si devuelve error_guardado, explica que no has podido guardar la reserva y pregunta si quiere
           reintentarlo. No afirmes que está confirmada. Solo reintenta si el cliente lo pide.
     functions:
+      - name: collect_party_size
+        transition_to:
+          field: status
+          cases:
+            falta_dia: reservation_date
+          default: reservation_details
       - name: confirm_reservation
         transition_to:
           field: status

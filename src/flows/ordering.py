@@ -1,4 +1,4 @@
-"""Flujo de pedido de comida con funciones directas de Pipecat Flows."""
+"""Food ordering flow with direct Pipecat Flows functions."""
 
 from datetime import datetime, timedelta
 from decimal import Decimal
@@ -13,7 +13,7 @@ from services.validation import normalize_address, normalize_name, normalize_pho
 
 
 class OrderItem(TypedDict):
-    """Línea individual del pedido almacenada en el estado del flujo."""
+    """Single order line stored in the flow state."""
 
     item_key: str
     name: str
@@ -24,7 +24,7 @@ class OrderItem(TypedDict):
 
 
 class MenuItemRequest(TypedDict):
-    """Producto pedido por el cliente antes de convertirlo en línea de pedido."""
+    """Product requested by the customer before it becomes a placed line item."""
 
     item_key: str
     quantity: int
@@ -32,7 +32,7 @@ class MenuItemRequest(TypedDict):
 
 
 class OrderResult(TypedDict):
-    """Resultado que la herramienta devuelve al LLM tras cambiar el pedido."""
+    """Result returned by the tool after modifying the order."""
 
     status: str
     order_summary: str
@@ -47,13 +47,13 @@ class OrderResult(TypedDict):
 
 
 class DeliveryEstimateResult(TypedDict):
-    """Resultado de la función global de estimación de entrega o recogida."""
+    """Result of the global delivery or pickup estimate function."""
 
     estimated_time: str
 
 
 def ensure_order_state(flow_manager: FlowManager) -> None:
-    """Inicializa el estado compartido del pedido la primera vez que se necesita."""
+    """Initializes the shared order state the first time it is needed."""
     flow_manager.state.setdefault("order_items", [])
     flow_manager.state.setdefault("customer_name", None)
     flow_manager.state.setdefault("order_type", "recogida")
@@ -62,19 +62,19 @@ def ensure_order_state(flow_manager: FlowManager) -> None:
 
 
 def order_total(items: list[OrderItem]) -> Decimal:
-    """Calcula el total actual del pedido."""
+    """Calculates the current order total."""
     return sum((item["line_total"] for item in items), start=Decimal("0.00")).quantize(
         Decimal("0.01")
     )
 
 
 def public_total(items: list[OrderItem]) -> float:
-    """Convierte el total exacto a un valor serializable para la herramienta."""
+    """Converts the exact total to a serializable value for the tool."""
     return float(order_total(items))
 
 
 def summarize_order(items: list[OrderItem]) -> str:
-    """Crea un resumen legible del pedido para que el asistente lo lea en voz alta."""
+    """Creates a readable summary for the assistant to read aloud."""
     if not items:
         return "El pedido está vacío."
 
@@ -88,7 +88,7 @@ def summarize_order(items: list[OrderItem]) -> str:
 
 
 def build_order_item(item_key: str, quantity: int, notes: str = "") -> OrderItem:
-    """Construye una línea de pedido ya validada."""
+    """Builds a validated order line."""
     menu_item = MENU[item_key]
     line_total = (menu_item["price"] * quantity).quantize(Decimal("0.01"))
     return {
@@ -102,7 +102,7 @@ def build_order_item(item_key: str, quantity: int, notes: str = "") -> OrderItem
 
 
 def merge_order_item(items: list[OrderItem], new_item: OrderItem) -> None:
-    """Acumula líneas equivalentes para evitar duplicados ambiguos."""
+    """Accumulates equivalent lines to avoid ambiguous duplicates."""
     for item in items:
         if item["item_key"] == new_item["item_key"] and item["notes"] == new_item["notes"]:
             item["quantity"] += new_item["quantity"]
@@ -114,7 +114,7 @@ def merge_order_item(items: list[OrderItem], new_item: OrderItem) -> None:
 
 
 def validate_menu_request(item_key: str, quantity: int) -> str | None:
-    """Devuelve un mensaje de error si la línea de pedido no es válida."""
+    """Returns an error message if the order line is invalid."""
     if item_key not in MENU:
         return f"Clave de producto desconocida: {item_key}."
     if quantity < 1 or quantity > 10:
@@ -129,7 +129,7 @@ def build_order_result(
     summary: str | None = None,
     **details: str,
 ) -> OrderResult:
-    """Crea la fotografía del pedido que recibe el asistente tras cada acción."""
+    """Creates the order snapshot the assistant receives after each action."""
     result: OrderResult = {
         "status": status,
         "order_summary": summary if summary is not None else summarize_order(items),
@@ -154,8 +154,8 @@ async def add_menu_item(
     """
     ensure_order_state(flow_manager)
 
-    # El LLM debería elegir una clave válida, pero esta validación hace la demo
-    # más robusta y permite explicar por qué nunca confiamos ciegamente en tools.
+    # The LLM should pick a valid key, but this check makes the demo more robust
+    # and shows why we never blindly trust tool arguments.
     validation_error = validate_menu_request(item_key, quantity)
     if validation_error:
         return build_order_result(
@@ -333,7 +333,7 @@ async def complete_order(flow_manager: FlowManager) -> tuple[OrderResult, object
 async def get_order_time_estimate(
     flow_manager: FlowManager,
 ) -> tuple[DeliveryEstimateResult, object]:
-    """Proporciona la estimación actual de recogida o entrega."""
+    """Provides the current pickup or delivery estimate."""
     ensure_order_state(flow_manager)
     minutes = 45 if flow_manager.state["order_type"] == "entrega" else 20
     estimated_time = datetime.now() + timedelta(minutes=minutes)

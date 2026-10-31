@@ -1,4 +1,4 @@
-"""Creación de servicios externos usados por el pipeline de Pipecat."""
+"""Creation of external services used by the Pipecat pipeline."""
 
 import os
 
@@ -10,13 +10,13 @@ from pipecat.services.openai.responses.llm import (
     OpenAIResponsesLLMService,
 )
 
-def create_openai_llm() -> OpenAIResponsesLLMService:
-    """Crea el servicio LLM de OpenAI.
 
-    Se usa gpt-4.1-nano porque es un modelo pequeño y económico de OpenAI que
-    soporta llamadas a funciones, algo necesario para las funciones directas de
-    Pipecat Flows. El límite `max_completion_tokens` también ayuda a mantener
-    respuestas habladas cortas.
+def create_openai_llm() -> OpenAIResponsesLLMService:
+    """Creates the OpenAI LLM service.
+
+    gpt-4.1-nano is used because it is a small, cost-effective OpenAI model that
+    supports function calling, which is required for direct Pipecat Flows tools.
+    The `max_completion_tokens` cap also keeps spoken responses short.
     """
     llm_transport = os.getenv("OPENAI_LLM_TRANSPORT", "http").strip().lower()
     llm_service = (
@@ -36,7 +36,7 @@ def create_openai_llm() -> OpenAIResponsesLLMService:
 
 
 def create_deepgram_stt() -> DeepgramSTTService:
-    """Crea el servicio STT de Deepgram para transcribir audio en español."""
+    """Creates the Deepgram STT service for transcribing Spanish audio."""
     settings = {
         "model": os.getenv("DEEPGRAM_MODEL", "nova-3"),
         "language": os.getenv("DEEPGRAM_LANGUAGE", "es"),
@@ -59,11 +59,11 @@ def create_deepgram_stt() -> DeepgramSTTService:
 def create_elevenlabs_tts(
     aiohttp_session: aiohttp.ClientSession,
 ) -> ElevenLabsHttpTTSService:
-    """Crea el servicio TTS de ElevenLabs.
+    """Creates the ElevenLabs TTS service.
 
-    Usamos el servicio HTTP en lugar del WebSocket porque algunas cuentas de
-    ElevenLabs rechazan cambios de `voice_settings` entre contextos WebSocket.
-    Sigue siendo streaming de audio de ElevenLabs, pero evita ese error 1008.
+    We use the HTTP service instead of WebSocket because some ElevenLabs accounts
+    reject `voice_settings` changes between WebSocket contexts. It is still
+    streaming audio from ElevenLabs, but it avoids error 1008.
     """
     return ElevenLabsHttpTTSService(
         api_key=os.getenv("ELEVENLABS_API_KEY"),

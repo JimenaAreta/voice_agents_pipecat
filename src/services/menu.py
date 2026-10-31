@@ -1,8 +1,8 @@
-"""Menú fijo de El Rincón de Castilla.
+"""Fixed menu for El Rincón de Castilla.
 
-Mantener el menú en un módulo separado hace que el flujo conversacional sea más
-fácil de leer. En una aplicación real, estos datos podrían venir de una base de
-datos, un CMS o un sistema de punto de venta.
+Keeping the menu in a separate module makes the conversational flow easier to
+read. In a real application, this data could come from a database, a CMS, or a
+point-of-sale system.
 """
 
 from decimal import Decimal
@@ -66,13 +66,13 @@ MENU = {
 
 
 def format_euros(amount: Decimal | float | int) -> str:
-    """Formatea importes para que el TTS los pronuncie de forma natural."""
+    """Formats amounts so the TTS can pronounce them naturally."""
     value = Decimal(str(amount)).quantize(Decimal("0.01"))
     return f"{value:.2f}".replace(".", ",") + " euros"
 
 
 def format_menu_for_prompt() -> str:
-    """Devuelve una versión compacta del menú para las instrucciones del LLM."""
+    """Returns a compact menu summary for the LLM instructions."""
     return "\n".join(
         f"- {key}: {item['name']} ({format_euros(item['price'])}) - {item['description']}"
         for key, item in MENU.items()

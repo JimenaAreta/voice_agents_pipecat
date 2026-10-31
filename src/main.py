@@ -1,18 +1,17 @@
-"""Bot de voz de El Rincón de Castilla con pedido de comida y reserva de mesa.
+"""Voice bot for El Rincón de Castilla with food ordering and table reservation.
 
-Este archivo contiene solo el ensamblaje de la aplicación. El resto está
-separado por responsabilidad:
+This file contains only application assembly. The rest is separated by responsibility:
 
-- `restaurant.yaml`: nodos, prompts y transiciones del flujo.
-- `ordering.py`: pedido de comida.
-- `reservations.py`: reserva de mesa.
-- `services.py`: OpenAI, Deepgram y ElevenLabs.
-- `pipeline.py`: procesamiento de voz y turnos.
+- `restaurant.yaml`: flow nodes, prompts, and transitions.
+- `ordering.py`: food ordering.
+- `reservations.py`: table reservation.
+- `services.py`: OpenAI, Deepgram, and ElevenLabs.
+- `pipeline.py`: voice processing and turn handling.
 
-Ejecuta con:
+Run with:
     uv run python src/main.py
 
-Después abre:
+Then open:
     http://localhost:7860/client
 """
 
@@ -37,10 +36,9 @@ from services.services import create_deepgram_stt, create_elevenlabs_tts, create
 load_dotenv(override=True)
 
 
-# El runner de Pipecat puede crear distintos transportes a partir de argumentos
-# de línea de comandos. Para una demo local de máster, el cliente WebRTC por
-# defecto es lo más cómodo: `uv run python src/main.py` y después abre
-# http://localhost:7860/client.
+# Pipecat's runner can create different transports from command-line arguments.
+# For a local demo, the default WebRTC client is the most convenient: `uv run python src/main.py`
+# and then open http://localhost:7860/client.
 transport_params = {
     "daily": lambda: DailyParams(audio_in_enabled=True, audio_out_enabled=True),
     "twilio": lambda: FastAPIWebsocketParams(audio_in_enabled=True, audio_out_enabled=True),
@@ -49,19 +47,18 @@ transport_params = {
 
 
 async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> None:
-    """Prepara los servicios, el flujo conversacional y ejecuta el bot."""
+    """Prepares the services, the conversational flow, and runs the bot."""
     validate_required_api_keys()
     voice_settings = VoiceSettings.from_env()
     stt = create_deepgram_stt()
     llm = create_openai_llm()
 
-    # ElevenLabs HTTP necesita una sesión aiohttp compartida. La cerramos cuando
-    # el cliente se desconecta para no dejar recursos abiertos.
+    # ElevenLabs HTTP needs a shared aiohttp session. We close it when the client disconnects
+    # to avoid leaving resources open.
     aiohttp_session = aiohttp.ClientSession()
 
-    # El agregador de contexto mantiene el historial de conversación. Silero VAD
-    # ayuda a Pipecat a decidir cuándo el usuario ha terminado de hablar antes
-    # de enviar el texto al LLM.
+    # The context aggregator keeps the conversation history. Silero VAD helps Pipecat decide
+    # when the user has finished speaking before sending the text to the LLM.
     try:
         tts = create_elevenlabs_tts(aiohttp_session)
         voice_pipeline = create_voice_pipeline(
@@ -95,9 +92,9 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
 
         @transport.event_handler("on_client_connected")
         async def on_client_connected(transport, client) -> None:
-            logger.info("Cliente conectado; inicializando flujo")
-            # Cada conexión representa un cliente nuevo. Así ningún nombre,
-            # teléfono o pedido de una conversación anterior puede heredarse.
+            logger.info("Client connected; initializing flow")
+            # Each connection represents a new client. This ensures no name, phone, or previous
+            # order can be inherited across conversations.
             flow_manager.state.clear()
             flow_manager.state["menu_prompt"] = format_menu_for_prompt()
             flow_manager.state["alternative_times_spoken"] = ""
@@ -105,7 +102,7 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
 
         @transport.event_handler("on_client_disconnected")
         async def on_client_disconnected(transport, client) -> None:
-            logger.info("Cliente desconectado; cancelando sesión")
+            logger.info("Client disconnected; canceling session")
             await runner.cancel()
 
         await runner.add_workers(worker)
@@ -116,7 +113,7 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
 
 
 async def bot(runner_args: RunnerArguments) -> None:
-    """Punto de entrada usado por `pipecat.runner.run.main`."""
+    """Entry point used by `pipecat.runner.run.main`."""
     transport = await create_transport(runner_args, transport_params)
     await run_bot(transport, runner_args)
 

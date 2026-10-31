@@ -42,7 +42,7 @@ sin sobrescribir cambios posteriores ni reservas existentes.
 - `src/services/reservation_store.py`: registro persistente de reservas confirmadas en SQLite.
 - `src/services/validation.py`: normalización y validación de datos de pedidos y reservas.
 - `tests/`: pruebas deterministas de los flujos, validaciones y formato de voz.
-- `evals/`: escenarios YAML de evaluación y pruebas de su estructura.
+- `evaluation/`: material de la sesión de evaluación de agentes de voz (ver su README).
 - `.env.example`: plantilla de variables de entorno.
 
 ### Orden recomendado para estudiar el código
@@ -265,37 +265,4 @@ Quiero reservar una mesa.
 
 ```text
 Para mañana, cuatro personas, a las siete de la tarde.
-```
-
-## 8. Pruebas y evaluaciones
-
-Ejecuta las pruebas deterministas con:
-
-```bash
-uv run pytest
-```
-
-Si instalaste con `pip`, instala primero las herramientas de pruebas y ejecútalas
-con el entorno activado:
-
-```bash
-python -m pip install pytest pytest-asyncio
-python -m pytest
-```
-
-Los escenarios de `evals/orders.yaml` y `evals/reservations.yaml` describen
-reservas disponibles, alternativas, cambio de intención, pedidos múltiples y
-entradas ambiguas. `evals/test_schemas.py` valida su estructura; `pytest` no
-mantiene conversaciones con los servicios externos ni evalúa el audio.
-
-El repositorio no incluye un ejecutor de conversaciones con Pipecat Evals ni
-un transporte de evaluación configurado en `src/main.py`. Para comprobar voz,
-pausas e interrupciones, utiliza el cliente WebRTC y las frases de la sección anterior.
-
-## 9. Parar el servidor
-
-En la terminal donde esta corriendo:
-
-```text
-Ctrl + C
 ```

@@ -1,4 +1,4 @@
-"""Validaciones deterministas para datos recibidos por herramientas del LLM."""
+"""Deterministic validation for data received by LLM tools."""
 
 import re
 from datetime import date, datetime, timedelta
@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 
 
 def normalize_phone(phone_number: str) -> str | None:
-    """Normaliza un teléfono razonable sin aceptar texto vacío o incompleto."""
+    """Normalizes a reasonable phone number without accepting empty or incomplete text."""
     digits = re.sub(r"\D", "", phone_number)
     if not 9 <= len(digits) <= 15:
         return None
@@ -14,7 +14,7 @@ def normalize_phone(phone_number: str) -> str | None:
 
 
 def normalize_name(name: str) -> str | None:
-    """Limpia un nombre y rechaza valores vacíos o claramente inválidos."""
+    """Cleans a name and rejects empty or clearly invalid values."""
     clean_name = " ".join(name.split())
     if len(clean_name) < 2 or len(clean_name) > 80:
         return None
@@ -24,7 +24,7 @@ def normalize_name(name: str) -> str | None:
 
 
 def normalize_address(address: str) -> str | None:
-    """Limpia una dirección de entrega básica."""
+    """Cleans a basic delivery address."""
     clean_address = " ".join(address.split())
     if len(clean_address) < 5 or len(clean_address) > 200:
         return None
@@ -32,12 +32,12 @@ def normalize_address(address: str) -> str | None:
 
 
 def restaurant_today() -> date:
-    """Fecha del restaurante, independiente de la zona horaria del servidor."""
+    """Restaurant date, independent from the server timezone."""
     return datetime.now(ZoneInfo("Europe/Madrid")).date()
 
 
 def normalize_reservation_date(date_text: str, *, today: date | None = None) -> str | None:
-    """Resuelve días relativos a ISO; conserva otras fechas habladas."""
+    """Resolves relative days to ISO; preserves other spoken dates."""
     clean_date = " ".join(date_text.split())
     if len(clean_date) < 3 or len(clean_date) > 80:
         return None
