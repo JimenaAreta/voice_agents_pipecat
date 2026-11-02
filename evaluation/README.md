@@ -12,10 +12,8 @@ instalan con el `uv sync` del repositorio; si instalaste con `pip`, añade
 - `p01_schema_stt.py`: práctica 1, esquema y WER.
 - `p02_agent.py`: práctica 2, suite de reservas contra los handlers reales.
   La práctica 4 vuelve a usarla.
-- `escucha.html` y `p03_ratings.py`: práctica 3, escucha A/B y valoraciones.
 - `p02_solucion.py`: soluciones de C05 (práctica 2, JSON inválido) y C06
   (práctica 4, sin mesa); no repartir.
-- `data/`: CSV de ejemplo para la práctica 3 (uno válido y uno con errores).
 - `agent_scenarios/`: escenarios YAML de conversaciones del agente y los
   modelos que validan su estructura. No hay un ejecutor de conversaciones.
 - `tests/`: pruebas de las prácticas y de los escenarios.
@@ -72,26 +70,6 @@ Las soluciones están en `p02_solucion.py` (`--fixed` también funciona):
 |---|---|---|
 | C05 | 2 | La reserva se hace, pero el JSON de datos finales llega cortado |
 | C06 | 4 | El 16/10 a las 21:00 no hay mesa, no acepta alternativa y no se reserva |
-
-## Práctica 3: escucha y valoraciones
-
-1. Abre `escucha.html` en Chrome, Edge o Safari (doble clic; no necesita servidor).
-2. El operador elige las voces o velocidades de A y B y pulsa «Ocultar configuración».
-3. Cada evaluador escucha los tres textos en orden aleatorio, puntúa la naturalidad
-   (1-5), marca los datos que ha entendido y escribe una observación.
-4. Descarga `valoraciones.csv` y ejecuta:
-
-```bash
-cd evaluation
-uv run python p03_ratings.py --csv valoraciones.csv
-```
-
-Sin `--csv` se usa `data/valoraciones_ejemplo.csv`, que reproduce el debrief de
-la sesión. `data/valoraciones_invalidas.csv` muestra cómo se rechaza un fichero
-con valores fuera de escala.
-
-Un voto cuenta como «datos correctos» cuando recupera todos los campos de su
-texto: 3 en la reserva y 2 en los otros dos textos.
 
 ## Práctica 4: recuperación y decisión
 

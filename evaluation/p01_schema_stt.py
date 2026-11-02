@@ -201,17 +201,6 @@ def main() -> None:
     report = make_dataset().evaluate_sync(replay_stt, progress=False)
     report.print(include_reasons=True, include_durations=False)
 
-    print("\n== 4. Agregados: media por clip frente a WER de corpus ==\n")
-    pairs = [(case.expected_output.reference, case.inputs) for case in CASES]
-    # Un clip corto con un error pesa igual que uno largo en la media por clip.
-    short_clip = ("Para 4.", "Para 5.")
-    for label, sample in (("casos del dataset", pairs), ("+ clip corto", [*pairs, short_clip])):
-        mean_per_clip = sum(wer(ref, hyp) for ref, hyp in sample) / len(sample)
-        print(
-            f"{label}: media por clip {mean_per_clip:.2%} · "
-            f"corpus {corpus_wer(sample):.2%}"
-        )
-
 
 if __name__ == "__main__":
     main()
