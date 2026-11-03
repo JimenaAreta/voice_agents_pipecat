@@ -26,6 +26,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
+from dotenv import load_dotenv
+
+# Cargar variables del proyecto aunque el script se ejecute desde evaluation/
+load_dotenv(Path(__file__).resolve().parent.parent / ".env", override=True)
+
 import logfire
 from loguru import logger
 from pydantic import BaseModel, ValidationError
